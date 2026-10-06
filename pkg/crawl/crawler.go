@@ -138,6 +138,12 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				if gCtx.Err() != nil {
 					return nil
 				}
+				if totalDownloaded.Load() >= limits.MaxTotalDownloadBytes {
+					return nil
+				}
+				if int(pagesCount.Add(1)) > limits.MaxPages {
+					return nil
+				}
 
 				// Rate limiting per host
 				if err := limiter.Wait(gCtx); err != nil {
@@ -163,7 +169,6 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				}
 
 				downloadedNow := totalDownloaded.Add(int64(len(bodyBytes)))
-				pagesCount.Add(1)
 
 				bodyHash := sha256.Sum256(bodyBytes)
 				bodyFp := hex.EncodeToString(bodyHash[:])

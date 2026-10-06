@@ -193,3 +193,151 @@ func TestCrawlerEndToEnd(t *testing.T) {
 	assert.True(t, discoveredJS, "JavaScript asset /static/main.js must be discovered")
 	assert.True(t, discoveredExt, "External reference twitter.com must be discovered")
 }
+
+func TestCrawlerMaxPagesEnforced(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body>`)
+		for i := 1; i <= 20; i++ {
+			fmt.Fprintf(w, `<a href="/page/%d">Page %d</a> `, i, i)
+		}
+		fmt.Fprintf(w, `</body></html>`)
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	limits := model.DefaultLimits()
+	limits.MaxPages = 4
+	limits.MaxDepth = 2
+
+	env := checks.NewEnvironmentWithPolicy(ts.Client(), nil, crawlPermissivePolicy{}, limits, nil)
+	tgt, _ := target.Parse(ts.URL)
+
+	crawler := NewCrawler(env, tgt)
+	res, err := crawler.Run(t.Context())
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, len(res.PagesVisited), 4, "pages crawled must not exceed configured MaxPages budget")
+}
+
+func TestCrawlerMaxAssetsEnforced(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><head>`)
+		for i := 1; i <= 30; i++ {
+			fmt.Fprintf(w, `<script src="/static/app%d.js"></script>`, i)
+		}
+		fmt.Fprintf(w, `</head><body>Content</body></html>`)
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	limits := model.DefaultLimits()
+	limits.MaxAssets = 7
+	limits.MaxPages = 2
+
+	env := checks.NewEnvironmentWithPolicy(ts.Client(), nil, crawlPermissivePolicy{}, limits, nil)
+	tgt, _ := target.Parse(ts.URL)
+
+	crawler := NewCrawler(env, tgt)
+	res, err := crawler.Run(t.Context())
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, len(res.DiscoveredAssets), 7, "discovered assets must not exceed MaxAssets limit")
+}
+
+func TestCrawlerMaxDepthEnforced(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<a href="/d1">Depth 1</a>`)
+	})
+	mux.HandleFunc("/d1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<a href="/d2">Depth 2</a>`)
+	})
+	mux.HandleFunc("/d2", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<a href="/d3">Depth 3</a>`)
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	limits := model.DefaultLimits()
+	limits.MaxDepth = 1
+	limits.MaxPages = 10
+
+	env := checks.NewEnvironmentWithPolicy(ts.Client(), nil, crawlPermissivePolicy{}, limits, nil)
+	tgt, _ := target.Parse(ts.URL)
+
+	crawler := NewCrawler(env, tgt)
+	res, err := crawler.Run(t.Context())
+	require.NoError(t, err)
+
+	for _, p := range res.PagesVisited {
+		assert.LessOrEqual(t, p.Depth, 1, "crawled page depth must not exceed MaxDepth")
+	}
+}
+
+func TestCrawlerCrawlTraps(t *testing.T) {
+	mux := http.NewServeMux()
+
+	// 1. Calendar query trap
+	mux.HandleFunc("/calendar", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body><a href="/calendar?m=next&nonce=%d">Next Month</a></body></html>`, time.Now().UnixNano())
+	})
+
+	// 2. Self link
+	mux.HandleFunc("/self", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `<html><body><a href="/self">Loop</a></body></html>`)
+	})
+
+	// 3. Cyclic paths
+	mux.HandleFunc("/dir/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<html><body><a href="%s/sub/">Deeper</a></body></html>`, r.URL.Path)
+	})
+
+	// 4. Redirect loop
+	mux.HandleFunc("/loop1", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/loop2", http.StatusFound)
+	})
+	mux.HandleFunc("/loop2", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/loop1", http.StatusFound)
+	})
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintln(w, `
+<html><body>
+  <a href="/calendar?m=1">Calendar</a>
+  <a href="/self">Self</a>
+  <a href="/dir/">Cyclic</a>
+  <a href="/loop1">Redirect Loop</a>
+</body></html>`)
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	limits := model.DefaultLimits()
+	limits.MaxDepth = 3
+	limits.MaxPages = 15
+	limits.TotalTimeoutSeconds = 5
+
+	env := checks.NewEnvironmentWithPolicy(ts.Client(), nil, crawlPermissivePolicy{}, limits, nil)
+	tgt, _ := target.Parse(ts.URL)
+
+	crawler := NewCrawler(env, tgt)
+	res, err := crawler.Run(t.Context())
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, len(res.PagesVisited), limits.MaxPages, "crawler must remain strictly bounded against traps")
+}

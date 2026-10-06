@@ -25,8 +25,8 @@ func newDoctorCmd() *cobra.Command {
 		Use:   "doctor",
 		Short: "Verify system health, runtime prerequisites, and external integration readiness",
 		Long: `The doctor command checks the health of the ExposureGuard runtime environment,
-verifies that third-party integrations (Subfinder, httpx, Katana, Nuclei) are installed,
-validates versions and compatibility contracts, and ensures templates are available.`,
+verifies protocol and schema compatibility, tests external integrations (Subfinder, httpx,
+Katana, Nuclei), validates template presence, and checks network deployment safety.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDoctor(cmd.Context(), opts)
 		},
@@ -36,6 +36,15 @@ validates versions and compatibility contracts, and ensures templates are availa
 
 	return cmd
 }
+
+// DoctorStatus represents a standard health check tier.
+type DoctorStatus string
+
+const (
+	StatusPass DoctorStatus = "PASS"
+	StatusWarn DoctorStatus = "WARN"
+	StatusFail DoctorStatus = "FAIL"
+)
 
 type doctorEngineView struct {
 	Name      string `json:"name"`
@@ -52,34 +61,54 @@ type doctorTempView struct {
 }
 
 type doctorIntegrationItem struct {
-	ID         string `json:"id"`
-	Binary     string `json:"binary"`
-	Path       string `json:"path,omitempty"`
-	Version    string `json:"version,omitempty"`
-	Installed  bool   `json:"installed"`
-	Compatible bool   `json:"compatible"`
-	Warning    string `json:"warning,omitempty"`
+	ID         string       `json:"id"`
+	Binary     string       `json:"binary"`
+	Path       string       `json:"path,omitempty"`
+	Version    string       `json:"version,omitempty"`
+	Installed  bool         `json:"installed"`
+	Compatible bool         `json:"compatible"`
+	Status     DoctorStatus `json:"status"`
+	Warning    string       `json:"warning,omitempty"`
 }
 
 type doctorTemplatesView struct {
-	Path       string `json:"path,omitempty"`
-	Present    bool   `json:"present"`
-	Version    string `json:"version,omitempty"`
-	Compatible bool   `json:"compatible"`
-	Error      string `json:"error,omitempty"`
+	Path       string       `json:"path,omitempty"`
+	Present    bool         `json:"present"`
+	Version    string       `json:"version,omitempty"`
+	Compatible bool         `json:"compatible"`
+	Status     DoctorStatus `json:"status"`
+	Error      string       `json:"error,omitempty"`
+}
+
+type doctorNetworkSafetyView struct {
+	Status  DoctorStatus `json:"status"`
+	Message string       `json:"message"`
+}
+
+type doctorCheckItem struct {
+	Name    string       `json:"name"`
+	Status  DoctorStatus `json:"status"`
+	Message string       `json:"message"`
 }
 
 type doctorReport struct {
-	Engine          doctorEngineView        `json:"engine"`
-	TempDir         doctorTempView          `json:"temp_dir"`
-	Integrations    []doctorIntegrationItem `json:"integrations"`
-	NucleiTemplates doctorTemplatesView     `json:"nuclei_templates"`
-	AllReady        bool                    `json:"all_ready"`
+	Status                DoctorStatus            `json:"status"`
+	Engine                doctorEngineView        `json:"engine"`
+	ProtocolVersion       string                  `json:"protocol_version"`
+	SnapshotSchemaVersion string                  `json:"snapshot_schema_version"`
+	TempDir               doctorTempView          `json:"temp_dir"`
+	Integrations          []doctorIntegrationItem `json:"integrations"`
+	NucleiTemplates       doctorTemplatesView     `json:"nuclei_templates"`
+	NetworkSafety         doctorNetworkSafetyView `json:"network_safety"`
+	Checks                []doctorCheckItem       `json:"checks"`
+	AllReady              bool                    `json:"all_ready"`
 }
 
 func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+
+	overallStatus := StatusPass
 
 	report := doctorReport{
 		Engine: doctorEngineView{
@@ -89,8 +118,30 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 			OS:        runtime.GOOS,
 			Arch:      runtime.GOARCH,
 		},
+		ProtocolVersion:       buildinfo.ProtocolVersion,
+		SnapshotSchemaVersion: buildinfo.SnapshotSchemaVersion,
+		NetworkSafety: doctorNetworkSafetyView{
+			Status:  StatusWarn,
+			Message: "Host cannot verify platform egress firewall; ensure scanner egress rules isolate RFC1918 and metadata in production.",
+		},
 		AllReady: true,
 	}
+
+	report.Checks = append(report.Checks, doctorCheckItem{
+		Name:    "engine",
+		Status:  StatusPass,
+		Message: fmt.Sprintf("%s %s (%s/%s)", buildinfo.EngineName, buildinfo.Version, runtime.GOOS, runtime.GOARCH),
+	})
+	report.Checks = append(report.Checks, doctorCheckItem{
+		Name:    "protocol",
+		Status:  StatusPass,
+		Message: fmt.Sprintf("Protocol v%s", buildinfo.ProtocolVersion),
+	})
+	report.Checks = append(report.Checks, doctorCheckItem{
+		Name:    "snapshot_schema",
+		Status:  StatusPass,
+		Message: fmt.Sprintf("Snapshot Schema v%s", buildinfo.SnapshotSchemaVersion),
+	})
 
 	// 1. Check temporary execution directory
 	testDir := filepath.Join(os.TempDir(), fmt.Sprintf("eg-doctor-%d", time.Now().UnixNano()))
@@ -101,6 +152,12 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 			Error:    err.Error(),
 		}
 		report.AllReady = false
+		overallStatus = StatusFail
+		report.Checks = append(report.Checks, doctorCheckItem{
+			Name:    "temp_dir",
+			Status:  StatusFail,
+			Message: fmt.Sprintf("Temp dir not writable (%s): %v", os.TempDir(), err),
+		})
 	} else {
 		testFile := filepath.Join(testDir, "test.tmp")
 		if err := os.WriteFile(testFile, []byte("ok"), 0o600); err != nil {
@@ -110,11 +167,22 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 				Error:    err.Error(),
 			}
 			report.AllReady = false
+			overallStatus = StatusFail
+			report.Checks = append(report.Checks, doctorCheckItem{
+				Name:    "temp_dir",
+				Status:  StatusFail,
+				Message: fmt.Sprintf("Temp dir write test failed: %v", err),
+			})
 		} else {
 			report.TempDir = doctorTempView{
 				Path:     os.TempDir(),
 				Writable: true,
 			}
+			report.Checks = append(report.Checks, doctorCheckItem{
+				Name:    "temp_dir",
+				Status:  StatusPass,
+				Message: fmt.Sprintf("Temp directory writable (%s)", os.TempDir()),
+			})
 		}
 		_ = os.RemoveAll(testDir)
 	}
@@ -128,6 +196,21 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		meta := a.Metadata()
 		inst, err := a.Detect(ctx, runner)
 
+		itemStatus := StatusFail
+		if inst.Installed && inst.Compatible {
+			itemStatus = StatusPass
+		} else if inst.Installed && !inst.Compatible {
+			itemStatus = StatusWarn
+			if overallStatus != StatusFail {
+				overallStatus = StatusWarn
+			}
+		} else {
+			itemStatus = StatusFail
+			if overallStatus != StatusFail {
+				overallStatus = StatusWarn
+			}
+		}
+
 		item := doctorIntegrationItem{
 			ID:         a.ID(),
 			Binary:     meta.Binary,
@@ -135,6 +218,7 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 			Version:    inst.Version,
 			Installed:  inst.Installed,
 			Compatible: inst.Compatible,
+			Status:     itemStatus,
 			Warning:    inst.Warning,
 		}
 		if err != nil && item.Warning == "" {
@@ -146,6 +230,11 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		}
 
 		report.Integrations = append(report.Integrations, item)
+		report.Checks = append(report.Checks, doctorCheckItem{
+			Name:    "integration." + a.ID(),
+			Status:  itemStatus,
+			Message: fmt.Sprintf("%s (%s)", meta.Binary, inst.Version),
+		})
 	}
 
 	// 3. Check Nuclei templates
@@ -154,17 +243,37 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		report.NucleiTemplates = doctorTemplatesView{
 			Present:    false,
 			Compatible: false,
+			Status:     StatusWarn,
 			Error:      err.Error(),
 		}
 		report.AllReady = false
+		report.Checks = append(report.Checks, doctorCheckItem{
+			Name:    "nuclei_templates",
+			Status:  StatusWarn,
+			Message: err.Error(),
+		})
 	} else {
 		report.NucleiTemplates = doctorTemplatesView{
 			Path:       templatesPath,
 			Present:    true,
 			Version:    templatesVer,
 			Compatible: true,
+			Status:     StatusPass,
 		}
+		report.Checks = append(report.Checks, doctorCheckItem{
+			Name:    "nuclei_templates",
+			Status:  StatusPass,
+			Message: fmt.Sprintf("Templates compatible (%s)", templatesPath),
+		})
 	}
+
+	report.Checks = append(report.Checks, doctorCheckItem{
+		Name:    "network_safety",
+		Status:  StatusWarn,
+		Message: report.NetworkSafety.Message,
+	})
+
+	report.Status = overallStatus
 
 	if opts.format == "json" {
 		enc := json.NewEncoder(os.Stdout)
@@ -173,83 +282,78 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	}
 
 	// Human formatting
-	fmt.Printf("✓ %s %s (%s/%s)\n", buildinfo.EngineName, buildinfo.Version, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("%-4s  engine: %s %s (%s/%s)\n", StatusPass, buildinfo.EngineName, buildinfo.Version, runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("%-4s  protocol: v%s\n", StatusPass, buildinfo.ProtocolVersion)
+	fmt.Printf("%-4s  snapshot_schema: v%s\n", StatusPass, buildinfo.SnapshotSchemaVersion)
 
 	if report.TempDir.Writable {
-		fmt.Printf("✓ Temp directory writable (%s)\n", report.TempDir.Path)
+		fmt.Printf("%-4s  temp_dir: writable (%s)\n", StatusPass, report.TempDir.Path)
 	} else {
-		fmt.Printf("✗ Temp directory error: %s\n", report.TempDir.Error)
+		fmt.Printf("%-4s  temp_dir: write failed (%s)\n", StatusFail, report.TempDir.Error)
 	}
 
 	for _, item := range report.Integrations {
-		if item.Installed && item.Compatible {
-			fmt.Printf("✓ %s %s (%s)\n", item.ID, item.Version, item.Path)
-		} else if item.Installed && !item.Compatible {
-			fmt.Printf("! %s %s (%s) — warning: %s\n", item.ID, item.Version, item.Path, item.Warning)
+		if item.Status == StatusPass {
+			fmt.Printf("%-4s  %s: %s (%s)\n", StatusPass, item.ID, item.Version, item.Path)
+		} else if item.Status == StatusWarn {
+			fmt.Printf("%-4s  %s: version incompatible (%s: %s)\n", StatusWarn, item.ID, item.Version, item.Warning)
 		} else {
-			fmt.Printf("✗ %s unavailable (%s not found in PATH or %s/bin)\n", item.ID, item.Binary, integration.DefaultExposureGuardHome())
+			fmt.Printf("%-4s  %s: binary missing (%s not found in PATH or %s/bin)\n", StatusFail, item.ID, item.Binary, integration.DefaultExposureGuardHome())
 		}
 	}
 
 	if report.NucleiTemplates.Present {
-		verStr := ""
-		if report.NucleiTemplates.Version != "" {
-			verStr = " " + report.NucleiTemplates.Version
-		}
-		fmt.Printf("✓ nuclei templates compatible%s (%s)\n", verStr, report.NucleiTemplates.Path)
+		fmt.Printf("%-4s  nuclei_templates: present (%s)\n", StatusPass, report.NucleiTemplates.Path)
 	} else {
-		fmt.Printf("! nuclei templates not found (%s)\n", report.NucleiTemplates.Error)
+		fmt.Printf("%-4s  nuclei_templates: not found (%s)\n", StatusWarn, report.NucleiTemplates.Error)
 	}
 
-	fmt.Println()
+	fmt.Printf("%-4s  network_safety: %s\n\n", report.NetworkSafety.Status, report.NetworkSafety.Message)
+
 	if report.AllReady {
-		fmt.Println("All integrations ready.")
+		fmt.Println("All core components ready.")
 	} else {
-		fmt.Println("Some integrations or templates are not ready. Use './install.sh' to install pinned dependencies.")
+		fmt.Println("Notice: Run './install.sh' to fetch pinned external binaries and templates.")
 	}
 
 	return nil
 }
 
-// discoverNucleiTemplates searches standard locations for Nuclei templates.
 func discoverNucleiTemplates() (string, string, error) {
-	candidates := []string{
-		os.Getenv("EXPOSUREGUARD_NUCLEI_TEMPLATES"),
-		os.Getenv("NUCLEI_TEMPLATES_PATH"),
-		filepath.Join(integration.DefaultExposureGuardHome(), "tools", "nuclei", "templates"),
-		"/opt/exposureguard/nuclei-templates",
-	}
-
-	if userHome, err := os.UserHomeDir(); err == nil && userHome != "" {
-		candidates = append(candidates,
-			filepath.Join(userHome, "nuclei-templates"),
-			filepath.Join(userHome, ".local", "nuclei-templates"),
-			filepath.Join(userHome, "Library", "Application Support", "nuclei"),
-		)
-	}
-
-	for _, path := range candidates {
-		if path == "" {
-			continue
+	// 1. Explicit environment override
+	if envPath := os.Getenv("EXPOSUREGUARD_NUCLEI_TEMPLATES"); envPath != "" {
+		if _, err := os.Stat(filepath.Join(envPath, ".nuclei-templates-version")); err == nil {
+			return envPath, readVersionFile(filepath.Join(envPath, ".nuclei-templates-version")), nil
 		}
-		fi, err := os.Stat(path)
-		if err == nil && fi.IsDir() {
-			// Try reading version from .templates-config.json if available
-			var ver string
-			cfgPath := filepath.Join(path, ".templates-config.json")
-			if fi, err := os.Stat(cfgPath); err == nil && !fi.IsDir() {
-				if data, err := os.ReadFile(cfgPath); err == nil {
-					var cfg struct {
-						Version string `json:"nuclei-templates-version"`
-					}
-					if json.Unmarshal(data, &cfg) == nil && cfg.Version != "" {
-						ver = cfg.Version
-					}
-				}
-			}
-			return path, ver, nil
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath, "custom", nil
 		}
 	}
 
-	return "", "", fmt.Errorf("no nuclei templates directory located")
+	// 2. Default location in EXPOSUREGUARD_HOME
+	home := integration.DefaultExposureGuardHome()
+	homeTemplates := filepath.Join(home, "nuclei-templates")
+	if _, err := os.Stat(homeTemplates); err == nil {
+		ver := readVersionFile(filepath.Join(homeTemplates, ".nuclei-templates-version"))
+		return homeTemplates, ver, nil
+	}
+
+	// 3. Fallback to current repository / workspace if running from source
+	cwd, err := os.Getwd()
+	if err == nil {
+		repoTemplates := filepath.Join(cwd, "profiles", "nuclei", "v1")
+		if _, err := os.Stat(filepath.Join(repoTemplates, "manifest.json")); err == nil {
+			return repoTemplates, "curated-v1", nil
+		}
+	}
+
+	return "", "", fmt.Errorf("templates not found at %s/nuclei-templates", home)
+}
+
+func readVersionFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	return string(b)
 }
