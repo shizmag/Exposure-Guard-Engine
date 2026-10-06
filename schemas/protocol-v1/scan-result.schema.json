@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exposureguard.dev/schemas/protocol-v1/scan-result.schema.json",
+  "title": "ScanResult",
+  "description": "Terminal output payload produced upon scan completion (Protocol v1)",
+  "type": "object",
+  "required": ["status", "scan_id", "target", "snapshot", "started_at", "completed_at"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version (defaults to '1')"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["complete", "partial", "failed"],
+      "description": "Execution status of the scan"
+    },
+    "scan_id": {
+      "type": "string",
+      "description": "Unique scan identifier"
+    },
+    "target": {
+      "type": "object",
+      "required": ["raw", "url", "scheme", "host"],
+      "properties": {
+        "raw": { "type": "string" },
+        "url": { "type": "string" },
+        "scheme": { "type": "string" },
+        "host": { "type": "string" },
+        "domain": { "type": "string" },
+        "port": { "type": "integer" }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "required": ["schema_version", "target", "assets", "observations", "findings", "summary"]
+    },
+    "changes": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Computed state transitions relative to previous baseline"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Runtime operational metrics and counts"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

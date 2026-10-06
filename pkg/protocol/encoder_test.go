@@ -36,12 +36,12 @@ func TestEncoderSequential(t *testing.T) {
 	assert.Equal(t, EventObservation, env2.Type)
 }
 
-func TestEncoderConcurrent(t *testing.T) {
+func TestEncoderConcurrentStrictOrder(t *testing.T) {
 	buf := &bytes.Buffer{}
 	enc := NewEncoder(buf, "scan-concurrent")
 
 	var wg sync.WaitGroup
-	count := 50
+	count := 100
 	wg.Add(count)
 
 	for i := 0; i < count; i++ {
@@ -56,12 +56,37 @@ func TestEncoderConcurrent(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	require.Len(t, lines, count)
 
-	seenSeqs := make(map[int64]bool)
-	for _, l := range lines {
+	for i, l := range lines {
 		var env Envelope
-		require.NoError(t, json.Unmarshal([]byte(l), &env))
-		assert.False(t, seenSeqs[env.Seq], "sequence numbers must be strictly unique")
-		seenSeqs[env.Seq] = true
+		require.NoError(t, json.Unmarshal([]byte(l), &env), "JSON line %d must be valid", i)
+		assert.Equal(t, int64(i+1), env.Seq, "sequence numbers in stream must be strictly monotonically increasing")
+		assert.Equal(t, EventFinding, env.Type)
+		assert.Equal(t, "scan-concurrent", env.ScanID)
 	}
-	assert.Len(t, seenSeqs, count)
+}
+
+func TestEncoderTerminalGuarantees(t *testing.T) {
+	t.Run("rejects_after_completed", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		enc := NewEncoder(buf, "scan-term-1")
+
+		require.NoError(t, enc.Emit(EventScanStarted, map[string]string{"target": "example.com"}))
+		require.NoError(t, enc.Emit(EventScanCompleted, map[string]string{"status": "complete"}))
+
+		err := enc.Emit(EventFinding, map[string]string{"item": "late"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot emit event")
+	})
+
+	t.Run("rejects_after_failed", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		enc := NewEncoder(buf, "scan-term-2")
+
+		require.NoError(t, enc.Emit(EventScanStarted, map[string]string{"target": "example.com"}))
+		require.NoError(t, enc.Emit(EventScanFailed, map[string]string{"reason": "timeout"}))
+
+		err := enc.Emit(EventObservation, map[string]string{"item": "late"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot emit event")
+	})
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exposureguard.dev/schemas/protocol-v1/scan-request.schema.json",
+  "title": "ScanRequest",
+  "description": "Structured execution request contract for ExposureGuard Engine (Protocol v1)",
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Protocol schema version (defaults to '1')"
+    },
+    "scan_id": {
+      "type": "string",
+      "description": "Caller-supplied or engine-generated unique scan identifier"
+    },
+    "target": {
+      "type": "string",
+      "description": "Target hostname, domain, or HTTP(S) URL to inspect"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["quick", "standard", "deep", "website"],
+      "description": "Execution profile defining default modules and integrations"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["public", "owned"],
+      "description": "Scan authorization mode: public (safe/passive) or owned (authorized active probing)"
+    },
+    "modules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Explicit native modules to execute"
+    },
+    "disable_modules": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Native modules to explicitly disable"
+    },
+    "integrations": {
+      "type": "string",
+      "description": "External integration selector ('auto', 'none', or comma-separated names)"
+    },
+    "disable_integrations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "External integrations to explicitly disable"
+    },
+    "require_integrations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "External integrations that must be present or scan fails"
+    },
+    "limits": {
+      "type": "object",
+      "description": "Resource budget and rate-limiting bounds",
+      "properties": {
+        "total_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "request_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "dns_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "tls_handshake_timeout_seconds": { "type": "integer", "minimum": 1 },
+        "max_redirects": { "type": "integer", "minimum": 0 },
+        "max_depth": { "type": "integer", "minimum": 0 },
+        "max_pages": { "type": "integer", "minimum": 1 },
+        "max_assets": { "type": "integer", "minimum": 1 },
+        "max_response_bytes": { "type": "integer", "minimum": 1 },
+        "max_total_download_bytes": { "type": "integer", "minimum": 1 },
+        "max_concurrency": { "type": "integer", "minimum": 1 },
+        "max_per_host_concurrency": { "type": "integer", "minimum": 1 },
+        "requests_per_second_per_host": { "type": "number", "minimum": 0.1 }
+      }
+    }
+  },
+  "additionalProperties": true
+}

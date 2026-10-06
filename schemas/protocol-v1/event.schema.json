@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exposureguard.dev/schemas/protocol-v1/event.schema.json",
+  "title": "ProtocolEventEnvelope",
+  "description": "Standard streaming JSONL event envelope for ExposureGuard Engine (Protocol v1)",
+  "type": "object",
+  "required": ["schema_version", "seq", "timestamp", "scan_id", "type", "data"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Protocol version identifier"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Strictly monotonically increasing event sequence counter"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when the event was emitted"
+    },
+    "scan_id": {
+      "type": "string",
+      "description": "Associated scan run ID"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "scan.started",
+        "stage.started",
+        "stage.completed",
+        "asset.discovered",
+        "observation",
+        "finding",
+        "change",
+        "warning",
+        "scan.summary",
+        "scan.completed",
+        "scan.failed"
+      ],
+      "description": "Identifies the semantic payload in data"
+    },
+    "data": {
+      "description": "Payload specific to the event type"
+    }
+  },
+  "additionalProperties": true
+}
