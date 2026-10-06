@@ -41,7 +41,13 @@ archives:
         format: zip
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: "SHA256SUMS"
+
+sboms:
+  - artifacts: archive
+    id: archive-sbom
+  - artifacts: binary
+    id: binary-sbom
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
