@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -50,6 +51,8 @@ type scanOptions struct {
 	requestJSON         string
 	logLevel            string
 	allowPrivate        bool
+	plan                bool
+	quiet               bool
 }
 
 func newScanCmd() *cobra.Command {
@@ -73,8 +76,10 @@ func newScanCmd() *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&opts.format, "format", "human", "output format: human, json, jsonl")
 	flags.StringVarP(&opts.output, "output", "o", "", "file path to write results (default stdout)")
-	flags.StringVar(&opts.profile, "profile", "website", "scanning profile")
+	flags.BoolVarP(&opts.quiet, "quiet", "q", false, "display only high-level summary (human mode only)")
+	flags.StringVar(&opts.profile, "profile", "standard", "scanning profile (quick, standard, deep)")
 	flags.StringVar(&opts.mode, "mode", "public", "scan authorization mode: public (safe, non-intrusive) or owned (caller declares authorization for extended active discovery)")
+	flags.BoolVar(&opts.plan, "plan", false, "preview execution plan without making network requests")
 	flags.StringSliceVar(&opts.modules, "modules", nil, "comma-separated modules to run")
 	flags.StringSliceVar(&opts.disableModules, "disable-module", nil, "modules to disable")
 	flags.StringVar(&opts.integrations, "integrations", "auto", "external integrations: auto, none, or comma-separated list")
@@ -224,6 +229,23 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 	if opts.allowPrivate || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "true" || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "1" {
 		netPolicy = netguard.AllowPrivateNetworkPolicy{}
 	}
+
+	if opts.plan {
+		scanEnv := checks.NewEnvironmentWithPolicy(nil, nil, netPolicy, req.Limits, nil)
+		eng := engine.NewEngine(scanEnv, nil)
+		plan, err := eng.Plan(req)
+		if err != nil {
+			return &ExitCodeError{Code: 2, Err: err}
+		}
+
+		if strings.EqualFold(format, "json") {
+			enc := json.NewEncoder(outWriter)
+			enc.SetIndent("", "  ")
+			return enc.Encode(plan)
+		}
+		return renderHumanPlan(outWriter, plan)
+	}
+
 	scanEnv := checks.NewEnvironmentWithPolicy(nil, nil, netPolicy, req.Limits, encoder)
 	eng := engine.NewEngine(scanEnv, encoder)
 	result, err := eng.Run(timeoutCtx, engine.Options{
@@ -241,6 +263,10 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 			return &ExitCodeError{Code: 4, Err: err}
 		}
 		return &ExitCodeError{Code: 1, Err: err}
+	}
+
+	if opts.allowPrivate || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "true" || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "1" {
+		result.UnsafePrivateNetworkAccess = true
 	}
 
 	// Persist snapshot if requested
@@ -261,6 +287,40 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(result)
 	default: // human
-		return human.Render(outWriter, result, human.Options{NoColor: noColor})
+		return human.Render(outWriter, result, human.Options{NoColor: noColor, Quiet: opts.quiet})
 	}
+}
+
+func renderHumanPlan(w io.Writer, p *model.ScanPlan) error {
+	fmt.Fprintf(w, "\nExposureGuard Scan Plan (Dry Run)\n\n")
+	fmt.Fprintf(w, "Target:   %s\n", p.Target)
+	fmt.Fprintf(w, "Host:     %s\n", p.Host)
+	fmt.Fprintf(w, "Profile:  %s\n", p.Profile)
+	fmt.Fprintf(w, "Mode:     %s\n\n", p.Mode)
+
+	fmt.Fprintln(w, "Native Modules:")
+	for _, m := range p.NativeModules {
+		fmt.Fprintf(w, "  • %s\n", m)
+	}
+
+	fmt.Fprintln(w, "\nExternal Integrations:")
+	if len(p.Integrations) == 0 {
+		fmt.Fprintln(w, "  • none (pure native execution)")
+	} else {
+		for _, i := range p.Integrations {
+			fmt.Fprintf(w, "  • %s\n", i)
+		}
+	}
+
+	fmt.Fprintln(w, "\nEffective Limits:")
+	fmt.Fprintf(w, "  • Total Timeout:          %ds\n", p.Limits.TotalTimeoutSeconds)
+	fmt.Fprintf(w, "  • Request Timeout:        %ds\n", p.Limits.RequestTimeoutSeconds)
+	fmt.Fprintf(w, "  • Max Concurrency:        %d\n", p.Limits.MaxConcurrency)
+	fmt.Fprintf(w, "  • Max Pages:              %d\n", p.Limits.MaxPages)
+	fmt.Fprintf(w, "  • Max Depth:              %d\n", p.Limits.MaxDepth)
+	fmt.Fprintf(w, "  • Max Assets:             %d\n", p.Limits.MaxAssets)
+	fmt.Fprintf(w, "  • Max Response Size:      %d bytes\n", p.Limits.MaxResponseBytes)
+	fmt.Fprintf(w, "  • Max Total Download:     %d bytes\n\n", p.Limits.MaxTotalDownloadBytes)
+
+	return nil
 }

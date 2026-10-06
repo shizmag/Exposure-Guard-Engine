@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/exposureguard/exposureguard/integrations"
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
@@ -11,9 +12,64 @@ import (
 )
 
 var (
-	cfgFile string
-	noColor bool
+	cfgFile      string
+	noColor      bool
+	rootLogLevel string
 )
+
+// LogLevel indicates the threshold for diagnostic stderr logging.
+type LogLevel int
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
+)
+
+var currentLogLevel = LogLevelInfo
+
+// SetLogLevel sets the global diagnostic logging threshold.
+func SetLogLevel(lvl string) {
+	switch strings.ToLower(strings.TrimSpace(lvl)) {
+	case "debug":
+		currentLogLevel = LogLevelDebug
+	case "warn", "warning":
+		currentLogLevel = LogLevelWarn
+	case "error":
+		currentLogLevel = LogLevelError
+	default:
+		currentLogLevel = LogLevelInfo
+	}
+}
+
+// LogDebug writes a debug diagnostic message to stderr if enabled.
+func LogDebug(format string, args ...any) {
+	if currentLogLevel <= LogLevelDebug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] "+format+"\n", args...)
+	}
+}
+
+// LogInfo writes an info diagnostic message to stderr if enabled.
+func LogInfo(format string, args ...any) {
+	if currentLogLevel <= LogLevelInfo {
+		fmt.Fprintf(os.Stderr, "[INFO] "+format+"\n", args...)
+	}
+}
+
+// LogWarn writes a warning diagnostic message to stderr if enabled.
+func LogWarn(format string, args ...any) {
+	if currentLogLevel <= LogLevelWarn {
+		fmt.Fprintf(os.Stderr, "[WARN] "+format+"\n", args...)
+	}
+}
+
+// LogError writes an error diagnostic message to stderr.
+func LogError(format string, args ...any) {
+	if currentLogLevel <= LogLevelError {
+		fmt.Fprintf(os.Stderr, "[ERROR] "+format+"\n", args...)
+	}
+}
 
 // ExitCodeError wraps an error with an explicit process exit code.
 type ExitCodeError struct {
@@ -46,16 +102,26 @@ It safely discovers assets, collects normalized observations, identifies actiona
 findings, and computes state changes across time without intrusive exploits.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if rootLogLevel != "" {
+				SetLogLevel(rootLogLevel)
+			}
+		},
 	}
 
 	cmd.PersistentFlags().StringVar(&cfgFile, "config", "", "path to configuration file")
 	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "disable ANSI color output")
+	cmd.PersistentFlags().StringVar(&rootLogLevel, "log-level", "info", "log level: error, warn, info, debug (emits to stderr)")
 
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newScanCmd())
 	cmd.AddCommand(newDiffCmd())
 	cmd.AddCommand(newDoctorCmd())
 	cmd.AddCommand(newIntegrationsCmd())
+	cmd.AddCommand(newProfilesCmd())
+	cmd.AddCommand(newSnapshotCmd())
+	cmd.AddCommand(newChecksCmd())
+	cmd.AddCommand(newConfigCmd())
 
 	return cmd
 }

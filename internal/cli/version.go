@@ -10,14 +10,17 @@ import (
 )
 
 func newVersionCmd() *cobra.Command {
-	var jsonOutput bool
+	var (
+		jsonOutput bool
+		format     string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version and build metadata",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			info := buildinfo.Get()
-			if jsonOutput {
+			if jsonOutput || format == "json" {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(info)
@@ -32,5 +35,6 @@ func newVersionCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output version metadata as JSON")
+	cmd.Flags().StringVar(&format, "format", "human", "output format: human, json")
 	return cmd
 }
