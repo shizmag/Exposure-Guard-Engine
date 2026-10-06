@@ -13,22 +13,22 @@ const (
 
 // ScanStats captures performance and discovery metrics.
 type ScanStats struct {
-	RequestsAttempted  int64                    `json:"requests_attempted"`
-	RequestsSuccessful int64                    `json:"requests_successful"`
-	BytesDownloaded    int64                    `json:"bytes_downloaded"`
-	PagesCrawled       int                      `json:"pages_crawled"`
-	AssetsDiscovered   int                      `json:"assets_discovered"`
-	JSFilesAnalyzed    int                      `json:"js_files_analyzed"`
-	SourceMapsDetected int                      `json:"source_maps_detected"`
-	TotalObservations  int                      `json:"total_observations"`
-	TotalFindings      int                      `json:"total_findings"`
+	RequestsAttempted   int64                    `json:"requests_attempted"`
+	RequestsSuccessful  int64                    `json:"requests_successful"`
+	BytesDownloaded     int64                    `json:"bytes_downloaded"`
+	PagesCrawled        int                      `json:"pages_crawled"`
+	AssetsDiscovered    int                      `json:"assets_discovered"`
+	JSFilesAnalyzed     int                      `json:"js_files_analyzed"`
+	SourceMapsDetected  int                      `json:"source_maps_detected"`
+	TotalObservations   int                      `json:"total_observations"`
+	TotalFindings       int                      `json:"total_findings"`
 	TotalChanges        int                      `json:"total_changes"`
 	IntegrationsRan     []string                 `json:"integrations_ran,omitempty"`
 	IntegrationsSkipped []string                 `json:"integrations_skipped,omitempty"`
 	IntegrationsFailed  []string                 `json:"integrations_failed,omitempty"`
 	IntegrationMetrics  map[string]any           `json:"integration_metrics,omitempty"`
 	DurationPerStage    map[string]time.Duration `json:"duration_per_stage,omitempty"`
-	TotalDuration      time.Duration            `json:"total_duration"`
+	TotalDuration       time.Duration            `json:"total_duration"`
 }
 
 // ScanResult is the root machine output payload for `--format json`.

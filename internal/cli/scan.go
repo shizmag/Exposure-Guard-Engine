@@ -21,33 +21,33 @@ import (
 )
 
 type scanOptions struct {
-	target           string
-	format           string
-	output           string
-	profile          string
-	mode             string
-	modules          []string
+	target              string
+	format              string
+	output              string
+	profile             string
+	mode                string
+	modules             []string
 	disableModules      []string
 	integrations        string
 	disableIntegrations []string
 	requireIntegrations []string
 	timeout             time.Duration
-	requestTimeout   time.Duration
-	dnsTimeout       time.Duration
-	concurrency      int
-	perHostConc      int
-	rateLimit        float64
-	maxDepth         int
-	maxPages         int
-	maxAssets        int
-	maxResponseBytes int64
-	maxTotalBytes    int64
-	maxRedirects     int
-	userAgent        string
-	previousSnapshot string
-	snapshotOut      string
-	requestJSON      string
-	logLevel         string
+	requestTimeout      time.Duration
+	dnsTimeout          time.Duration
+	concurrency         int
+	perHostConc         int
+	rateLimit           float64
+	maxDepth            int
+	maxPages            int
+	maxAssets           int
+	maxResponseBytes    int64
+	maxTotalBytes       int64
+	maxRedirects        int
+	userAgent           string
+	previousSnapshot    string
+	snapshotOut         string
+	requestJSON         string
+	logLevel            string
 }
 
 func newScanCmd() *cobra.Command {

@@ -23,4 +23,3 @@ type Adapter interface {
 	// Parse reads the structured tool output (e.g. JSONL) and emits canonical assets, observations, and findings.
 	Parse(ctx context.Context, input io.Reader, emit Emitter) error
 }
-
