@@ -271,10 +271,10 @@ if [ "$MODE" = "with-tools" ]; then
     echo ""
     echo "==> Installing pinned Nuclei templates..."
     TPL_VERSION="$(get_lock_field "nuclei-templates" "version")"
-    TPL_ARCHIVE="$(get_lock_field "nuclei-templates" "templates_archive")"
+    TPL_ARCHIVE="v${TPL_VERSION}.zip"
     TPL_SHA="$(get_lock_field "nuclei-templates" "templates_sha256")"
 
-    TPL_URL="https://github.com/projectdiscovery/nuclei-templates/releases/download/v${TPL_VERSION}/${TPL_ARCHIVE}"
+    TPL_URL="https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/${TPL_ARCHIVE}"
     TPL_FILE="${TMP_DIR}/${TPL_ARCHIVE}"
 
     echo "    Downloading: $TPL_URL"
@@ -290,8 +290,9 @@ if [ "$MODE" = "with-tools" ]; then
     fi
     echo "    ✓ Checksum verified ($ACTUAL_TPL_SHA)"
 
-    mkdir -p "${TEMPLATES_DIR}"
-    unzip -q -o "$TPL_FILE" -d "${TEMPLATES_DIR}"
+    mkdir -p "${TEMPLATES_DIR}" "${TMP_DIR}/tpl_ext"
+    unzip -q -o "$TPL_FILE" -d "${TMP_DIR}/tpl_ext"
+    cp -r "${TMP_DIR}/tpl_ext"/nuclei-templates-*/* "${TEMPLATES_DIR}/"
     echo "    ✓ Nuclei templates installed at ${TEMPLATES_DIR}"
 fi
 
