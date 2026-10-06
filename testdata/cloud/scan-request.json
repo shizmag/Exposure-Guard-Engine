@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "scan_id": "c1000000-0000-0000-0000-000000000001",
+  "target": "https://example.com",
+  "profile": "standard",
+  "mode": "public",
+  "integrations": "subfinder",
+  "limits": {
+    "total_timeout_seconds": 120,
+    "max_concurrency": 8,
+    "max_pages": 50,
+    "max_depth": 2
+  }
+}

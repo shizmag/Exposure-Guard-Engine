@@ -28,7 +28,7 @@ exposureguard scan \
   "schema_version": "1",
   "scan_id": "019488a0-7b2c-7412-a1b2-c3d4e5f67890",
   "target": "https://example.com",
-  "profile": "website",
+  "profile": "standard",
   "mode": "public",
   "modules": [
     "dns",
@@ -137,5 +137,87 @@ When cancelling a scan job:
 - `snapshot_schema_version`: Current value is `"1"`.
 - Query engine versions dynamically using:
   ```bash
-  exposureguard version --json
+  exposureguard version --format json
   ```
+
+---
+
+## 7. Concrete Worker Execution Example (TypeScript / Node.js)
+
+Below is the standard integration pattern for a cloud job dispatcher:
+
+```typescript
+import { spawn } from "node:child_process";
+import * as readline from "node:readline";
+
+interface ScanJob {
+  scanId: string;
+  target: string;
+  profile: "quick" | "standard" | "deep";
+  mode: "public" | "owned";
+}
+
+export async function runEngineWorker(job: ScanJob): Promise<void> {
+  const child = spawn("exposureguard", ["scan", "--request-json", "-", "--format", "jsonl"], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  // Stderr: Stream diagnostic logs directly to worker telemetry
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(`[engine-stderr] ${chunk}`);
+  });
+
+  // Stdout: Parse NDJSON / JSONL event stream line-by-line
+  const rl = readline.createInterface({ input: child.stdout, terminal: false });
+
+  rl.on("line", (line) => {
+    if (!line.trim()) return;
+    try {
+      const event = JSON.parse(line);
+      switch (event.type) {
+        case "asset.discovered":
+          // Ingest discovered asset
+          break;
+        case "finding":
+          // Real-time alert dispatch
+          break;
+        case "change":
+          // Record state drift
+          break;
+        case "scan.completed":
+          console.log(`Scan completed: seq=${event.seq}`);
+          break;
+        case "scan.failed":
+          console.error("Scan failed event received:", event.data);
+          break;
+      }
+    } catch (err) {
+      console.error("Failed to parse event JSON:", line);
+    }
+  });
+
+  // Write inbound ScanRequest to stdin
+  const requestPayload = JSON.stringify({
+    schema_version: "1",
+    scan_id: job.scanId,
+    target: job.target,
+    profile: job.profile,
+    mode: job.mode,
+  });
+  child.stdin.write(requestPayload);
+  child.stdin.end();
+
+  // Wait for process termination
+  const exitCode = await new Promise<number>((resolve) => {
+    child.on("close", resolve);
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(`Engine process exited with non-zero code ${exitCode}`);
+  }
+}
+```
+
+### Backpressure Handling
+The engine writes directly to `stdout`. If the consumer process consumes events slowly, standard OS pipe backpressure will throttle the engine writer without unbounded in-memory buffering.
+

@@ -6,178 +6,192 @@
 
 **ExposureGuard Engine** is an open-source, defensive outside-in scanner and inventory engine for web applications.
 
-It answers one fundamental question:
-
-> **What does your public website or web application expose to the outside world, and what meaningful changes occurred between today and yesterday?**
+It continuously observes what your internet-facing assets expose to the outside world and detects meaningful state drift over time without intrusive exploits.
 
 ---
 
-## Quick Start
+## 30-Second Demo: Tracking Exposure Drift
 
-### 1. Installation
+The true power of ExposureGuard is detecting **what changed**:
 
-#### Automated Installer (Local)
-Installs ExposureGuard engine and all pinned external discovery tools (`subfinder`, `httpx`, `katana`, `nuclei`):
+```bash
+# Day 1: Save baseline snapshot
+exposureguard scan https://example.com --snapshot-out baseline.json
+
+# Day 2: Deploy new release and compare against baseline
+exposureguard scan https://example.com --previous-snapshot baseline.json
+```
+
+```text
+ExposureGuard
+
+Target
+  https://example.com
+
+Surface
+  4 hostnames
+  18 pages
+  27 JavaScript assets
+  6 endpoint candidates
+
+TLS
+  ✓ Valid (expires in 54 days)
+
+Findings
+  · 1 medium
+  · 2 low
+
+  · [medium] Public JavaScript Source Map Detected (frontend.public_source_map)
+    Asset: https://example.com/static/app.js.map
+    Preview: //# sourceMappingURL=app.js.map
+
+Changes
+  + Public source map appeared in production
+  ~ Security header content_security_policy was removed
+  + New asset staging.example.com (hostname) discovered
+
+Scan completed in 2.1s
+```
+
+---
+
+## Installation
+
+### Automated Installer (Recommended)
+Installs the standalone engine binary and pinned discovery tools (`subfinder`, `httpx`, `katana`, `nuclei`):
 ```bash
 ./install.sh
 exposureguard doctor
 ```
 
-#### Build from Source
+### Build from Source
 ```bash
+git clone https://github.com/exposureguard/exposureguard.git
+cd exposureguard
 make build
 ./bin/exposureguard doctor
 ```
 
-### 2. Run a Scan
+### Shell Completion
 ```bash
+exposureguard completion zsh > "${fpath[1]}/_exposureguard"
+# or for bash:
+exposureguard completion bash > /etc/bash_completion.d/exposureguard
+```
+
+---
+
+## Running Scans
+
+```bash
+# Standard scan (bounded crawl + passive discovery)
 exposureguard scan https://example.com
+
+# Fast current-state check (no crawl, no external tools)
+exposureguard scan https://example.com --profile quick
+
+# Preview scan plan without network requests
+exposureguard scan https://example.com --profile standard --plan
+
+# Summary-only output
+exposureguard scan https://example.com --quiet
 ```
 
-### 3. External Toolchain & Integrations
+---
+
+## Comparing Two Snapshots
+
 ```bash
-# Verify health of engine and discovery integrations
-exposureguard doctor
+# Compute deterministic state difference between any two snapshots
+exposureguard diff yesterday.json today.json
 
-# List registered integrations
-exposureguard integrations list
-
-# Run with specific discovery tools (mode=owned required when selecting active tools)
-exposureguard scan example.com --mode owned --integrations subfinder,httpx
-
-# Deep scan for owned domains
-exposureguard scan example.com --mode owned --profile deep
-```
-
-### Example Output:
-```text
-ExposureGuard
-
-Target: https://example.com/
-
-DNS
-  ✓ resolved (IPs: 93.184.216.34)
-
-TLS
-  ✓ certificate valid (expires in 68 days)
-
-HTTP
-  ✓ response status 200
-  ⚠ Content-Security-Policy absent
-
-Frontend
-  14 JavaScript assets discovered
-  ⚠ 1 public source map(s) detected
-
-Summary
-  2 findings total (0 critical, 0 high, 1 medium, 1 low)
-  Duration: 1.2s
-
-Findings:
-  [MEDIUM] Public Source Map Accessible (frontend.public_source_map)
-      Asset: https://example.com/static/app.js.map
-  [LOW] Missing Strict-Transport-Security Header (http.missing_hsts)
-      Asset: https://example.com/
+# Verify canonical SHA-256 fingerprint of a snapshot
+exposureguard snapshot hash today.json
 ```
 
 ---
 
-## What It Is vs What It Is NOT
+## Scan Profiles
 
-| What ExposureGuard Is | What ExposureGuard Is NOT |
-| --- | --- |
-| Safe outside-in asset discovery & state inventory | Not an offensive penetration testing tool |
-| Passive DNS, TLS, HTTP, and static JS inspection | No exploit payloads, SQLi, or XSS fuzzing |
-| Referenced source-map detection and validation | No brute-force directory or port scanning |
-| Deterministic snapshots and state diffing over time | No form submissions or authentication attempts |
-| Self-contained core engine; orchestrates pinned tools for deep scans | No multi-tenant database, billing, or UI dashboard |
+ExposureGuard provides three centrally governed scan profiles:
+
+| Profile | Target Intent | Native Modules | External Integrations | Authorization Mode |
+| :--- | :--- | :--- | :--- | :---: |
+| **`quick`** | Fast current-state health check | DNS, TLS, HTTP root | None | Any (`public` or `owned`) |
+| **`standard`** | Default outside-in scan | DNS, TLS, HTTP, Crawl, JS, Source Maps | Subfinder (passive) | Any (`public` or `owned`) |
+| **`deep`** | Comprehensive authorized scan | All standard modules | Subfinder, httpx, Katana, Nuclei | **`owned`** only |
+
+Inspect profiles directly in the CLI:
+```bash
+exposureguard profiles list
+exposureguard profiles show standard
+```
 
 ---
 
-## Machine & Cloud Integration
+## Machine Usage (Protocol v1)
 
-### JSON Snapshot Mode
+### Structured JSON Result
 ```bash
 exposureguard scan https://example.com --format json
 ```
 
-### Streaming JSONL Protocol
-For integration into worker queues, CI/CD, or ExposureGuard Cloud:
+### Real-time Streaming JSONL
+Ideal for Cloud workers and CI pipelines:
 ```bash
 exposureguard scan \
   --request-json - \
   --format jsonl < request.json
 ```
-Output streams real-time line-delimited JSON events:
-```json
-{"schema_version":"1","seq":1,"timestamp":"2026-10-06T12:00:00Z","scan_id":"019...","type":"scan.started","data":{"target":"https://example.com/"}}
-{"schema_version":"1","seq":2,"timestamp":"2026-10-06T12:00:01Z","scan_id":"019...","type":"stage.started","data":{"stage":"dns"}}
-...
-{"schema_version":"1","seq":18,"timestamp":"2026-10-06T12:00:03Z","scan_id":"019...","type":"scan.completed","data":{"status":"complete","findings":2}}
-```
-
-See [docs/cloud-integration.md](docs/cloud-integration.md) for full protocol specifications.
-
----
-
-## Snapshot Diffing
-
-Compare yesterday's state with today's state:
-
-```bash
-exposureguard diff previous_snapshot.json latest_snapshot.json
-```
-
-Or detect changes during a live scan:
-
-```bash
-exposureguard scan https://example.com \
-  --previous-snapshot previous.json \
-  --snapshot-out today.json
-```
+Streams strictly ordered events (`seq: 1..N`) with terminal completion guarantees. See [docs/protocol-v1.md](docs/protocol-v1.md).
 
 ---
 
 ## Docker
 
-Run as an unprivileged container:
+ExposureGuard runs as an unprivileged, read-only compatible container:
 
 ```bash
-# Recommended: Pinned versioned image tag for reproducible execution
-docker run --rm ghcr.io/exposureguard/exposureguard:0.1.0 scan https://example.com --format json
-
-# Convenience tag for local development
-docker run --rm ghcr.io/exposureguard/exposureguard:latest scan https://example.com --format json
+docker run --rm \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  ghcr.io/exposureguard/exposureguard:0.1.0 \
+  scan https://example.com --format json
 ```
 
 ---
 
-## Security Model & Deployment Safeguards
+## Security Model & Explicit Limitations
 
-ExposureGuard assumes all targets and redirects are untrusted:
-- **Strict SSRF Protection**: Native engine enforces `pkg/netguard.SafeDialer`, prohibiting connections to loopback (`127.0.0.0/8`, `::1`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata (`169.254.169.254`), and CGNAT.
-- **DNS Rebinding Prevention**: Validates candidate IPs before dialing and connects only to the validated IP literal.
-- **Strict Resource Bounds**: Crawl depth, page counts, response body size, and concurrency are strictly capped.
-- **Zero Secret Leakage**: Credential matches in bundles are masked and fingerprinted; plaintext values are never output.
-- **Subprocess Egress Isolation**: External tools (`httpx`, `katana`, `nuclei`) use independent network stacks. For production ExposureGuard Cloud workers, host/container network egress filtering (dropping RFC 1918 and `169.254.0.0/16` metadata) and cloud IMDSv2 hop-limit=1 are required. Read [docs/deployment-security.md](docs/deployment-security.md).
-- **Target Authorization**: Specifying `--mode owned` is a caller declaration; orchestrators and ExposureGuard Cloud MUST verify target ownership (e.g. DNS TXT record challenge) before dispatching owned scans. Read [docs/security-model.md](docs/security-model.md).
+- **Defensive by Design**: ExposureGuard discovers assets and identifies misconfigurations. It is **not** an automated pentest tool and **not** an offensive exploit framework.
+- **Authorization Responsibility**: Passing `--mode owned` declares authorization for active crawling and probing; it does **not** prove legal target ownership.
+- **Egress Isolation Obligation**: While the native Go engine strictly enforces SSRF protection via `netguard`, external subprocesses (`httpx`, `katana`, `nuclei`) interact directly with the operating system network stack. Production deployments **must** enforce network egress firewalls blocking private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and cloud metadata (`169.254.169.254`). Reference rules are provided in `deploy/security/`.
+- **No Guarantee of Complete Security**: Zero findings means no tested exposures were identified; it is not a certificate of invulnerability.
 
----
-
-## Relationship with ExposureGuard Cloud
-
-ExposureGuard Engine is 100% open source under Apache 2.0. It functions completely standalone on developer laptops and in CI.
-
-**ExposureGuard Cloud** is the managed SaaS platform that orchestrates scheduled scans, historical dashboards, notifications, and team collaboration by running this engine as its core worker process.
+See [docs/security-model.md](docs/security-model.md) and [docs/deployment-security.md](docs/deployment-security.md).
 
 ---
 
-## Contributing
+## Relationship to ExposureGuard Cloud
 
-We welcome community contributions! See:
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [docs/contributing-checks.md](docs/contributing-checks.md)
-- [SECURITY.md](SECURITY.md)
+The ExposureGuard Engine is a stateless, single-binary execution worker. 
+
+**ExposureGuard Cloud** acts as the orchestration, notification, and temporal storage layer:
+- Schedules recurring scans.
+- Verifies domain ownership via DNS/HTTP challenges before authorizing `owned` mode.
+- Ingests engine snapshots, calculates historical diffs, and sends alerts (Telegram, Slack, Email).
+
+---
+
+## Community & Contributing
+
+- Documentation Navigation: **[docs/README.md](docs/README.md)**
+- Finding Rules Philosophy: **[docs/finding-philosophy.md](docs/finding-philosophy.md)**
+- Security Checks Catalog: **[docs/checks.md](docs/checks.md)**
+- Contributing Checks: **[docs/contributing-checks.md](docs/contributing-checks.md)**
+- Third-Party Licenses: **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**
 
 ---
 
