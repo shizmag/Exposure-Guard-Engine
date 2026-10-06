@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
+
+	"github.com/exposureguard/exposureguard/pkg/redact"
 )
 
 var trackingParams = map[string]bool{
@@ -55,6 +57,9 @@ func CanonicalizeURL(base *url.URL, rawRef string) (*url.URL, error) {
 			resolved.Path += "/"
 		}
 	}
+
+	// Redact embedded userinfo credentials and sensitive query tokens
+	resolved = redact.CleanURL(resolved)
 
 	return resolved, nil
 }

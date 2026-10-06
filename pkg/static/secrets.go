@@ -55,6 +55,18 @@ var credentialRules = []credentialRule{
 		Severity: model.SeverityMedium,
 		Regex:    regexp.MustCompile(`\bAIza[0-9A-Za-z\-_]{35}\b`),
 	},
+	{
+		Provider: "JWT",
+		Type:     "JSON Web Token",
+		Severity: model.SeverityMedium,
+		Regex:    regexp.MustCompile(`\beyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}\b`),
+	},
+	{
+		Provider: "Database",
+		Type:     "Database Connection URL",
+		Severity: model.SeverityHigh,
+		Regex:    regexp.MustCompile(`\b(?:postgres|postgresql|mysql|mongodb|redis):\/\/[a-zA-Z0-9_\-]+:[^@\s\n'"]+@[a-zA-Z0-9_\-\.]+:[0-9]+\b`),
+	},
 }
 
 // DetectCredentials scans raw JS bytes for curated high-confidence credentials.

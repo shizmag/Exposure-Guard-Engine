@@ -33,13 +33,14 @@ type ScanStats struct {
 
 // ScanResult is the root machine output payload for `--format json`.
 type ScanResult struct {
-	Status      ScanStatus `json:"status"`
-	ScanID      string     `json:"scan_id"`
-	Target      Target     `json:"target"`
-	Snapshot    Snapshot   `json:"snapshot"`
-	Changes     []Change   `json:"changes,omitempty"`
-	Summary     ScanStats  `json:"summary"`
-	StartedAt   time.Time  `json:"started_at,omitzero"`
-	CompletedAt time.Time  `json:"completed_at,omitzero"`
-	Errors      []string   `json:"errors,omitempty"`
+	Status                     ScanStatus `json:"status"`
+	ScanID                     string     `json:"scan_id"`
+	UnsafePrivateNetworkAccess bool       `json:"unsafe_private_network_access,omitempty"`
+	Target                     Target     `json:"target"`
+	Snapshot                   Snapshot   `json:"snapshot"`
+	Changes                    []Change   `json:"changes,omitempty"`
+	Summary                    ScanStats  `json:"summary"`
+	StartedAt                  time.Time  `json:"started_at,omitzero"`
+	CompletedAt                time.Time  `json:"completed_at,omitzero"`
+	Errors                     []string   `json:"errors,omitempty"`
 }
