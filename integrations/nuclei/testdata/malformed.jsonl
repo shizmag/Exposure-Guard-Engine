@@ -1,0 +1,5 @@
+[INF] Using Nuclei Engine v3.11.1
+{"template-id":"git-config","info":{"name":"Git Config","severity":"medium"},"matched-at":"https://example.com/.git/config"}
+{"template-id":"broken-json",
+random text [ERR] connection error
+{"template-id":"env-file","info":{"name":"Env File","severity":"high"},"matched-at":"https://example.com/.env"}

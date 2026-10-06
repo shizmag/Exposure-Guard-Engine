@@ -1,0 +1,1 @@
+{"timestamp":"2026-10-06T14:30:00.000000Z","request":{"method":"GET","endpoint":"https://example.com/assets/bundle.js","source":"https://example.com/","raw":"GET /assets/bundle.js HTTP/1.1\r\nHost: example.com\r\n\r\n"},"response":{"status_code":200,"headers":{"Content-Type":"application/javascript","Server":"nginx"},"body":"console.log('hello');","content_length":21}}

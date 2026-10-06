@@ -1,0 +1,4 @@
+{"timestamp":"2026-10-06T14:30:00Z","request":{"method":"GET","endpoint":"https://example.com/ok"},"response":{"status_code":200}}
+{"request":{"method":"GET","endpoint":"https://example.com/broken",
+random crawler log output [WRN]
+{"timestamp":"2026-10-06T14:30:02Z","request":{"method":"GET","endpoint":"https://example.com/ok2"},"response":{"status_code":200}}

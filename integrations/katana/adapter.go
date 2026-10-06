@@ -111,7 +111,7 @@ func (a *Adapter) Plan(ctx context.Context, req integration.Request) (integratio
 		"-d", strconv.Itoa(depth),
 		"-c", strconv.Itoa(concurrency),
 		"-jc",
-		"-kf", "robotstxt,sitemapxml",
+		"-kf", "all",
 		"-fs", "dn",
 		"-j",
 		"-or",
@@ -143,8 +143,4 @@ func (a *Adapter) Plan(ctx context.Context, req integration.Request) (integratio
 // Parse extracts assets and observations from Katana JSONL output.
 func (a *Adapter) Parse(ctx context.Context, input io.Reader, emit integration.Emitter) error {
 	return Parse(ctx, input, "", emit)
-}
-
-func init() {
-	_ = integration.Register(NewAdapter())
 }

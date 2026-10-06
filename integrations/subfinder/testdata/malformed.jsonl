@@ -1,0 +1,5 @@
+[INF] Starting Subfinder v2.16.0
+{"host":"valid1.example.com","input":"example.com","source":"crtsh"}
+{"host":"broken.example.com","input":"example.com",
+not a json line at all
+{"host":"valid2.example.com","input":"example.com","source":"censys"}

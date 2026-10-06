@@ -87,3 +87,96 @@ func TestHttpxPolicyRejection(t *testing.T) {
 		t.Fatalf("expected ErrPolicyDenied, got %v", err)
 	}
 }
+
+func TestHttpxParseFixturesComprehensive(t *testing.T) {
+	adapter := httpx.NewAdapter()
+	ctx := t.Context()
+
+	// 1. Valid single record
+	t.Run("valid", func(t *testing.T) {
+		f, err := os.Open("testdata/valid.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Assets) != 1 {
+			t.Fatalf("expected 1 asset, got %d", len(emit.Assets))
+		}
+		if emit.Assets[0].Value != "https://api.example.com" {
+			t.Errorf("expected https://api.example.com, got %s", emit.Assets[0].Value)
+		}
+	})
+
+	// 2. Multiple records (including 1 failed record which must be filtered)
+	t.Run("multiple", func(t *testing.T) {
+		f, err := os.Open("testdata/multiple.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Assets) != 2 {
+			t.Fatalf("expected 2 successful assets (1 failed probe filtered), got %d", len(emit.Assets))
+		}
+	})
+
+	// 3. Empty output
+	t.Run("empty", func(t *testing.T) {
+		f, err := os.Open("testdata/empty.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on empty input: %v", err)
+		}
+		if len(emit.Assets) != 0 || len(emit.Observations) != 0 {
+			t.Errorf("expected 0 assets/obs, got %d/%d", len(emit.Assets), len(emit.Observations))
+		}
+	})
+
+	// 4. Malformed / truncated records
+	t.Run("malformed", func(t *testing.T) {
+		f, err := os.Open("testdata/malformed.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on malformed input: %v", err)
+		}
+		if len(emit.Assets) != 2 {
+			t.Fatalf("expected 2 valid assets from malformed file, got %d", len(emit.Assets))
+		}
+	})
+
+	// 5. Unexpected optional fields
+	t.Run("unexpected_fields", func(t *testing.T) {
+		f, err := os.Open("testdata/unexpected_fields.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on unknown fields: %v", err)
+		}
+		if len(emit.Assets) != 1 {
+			t.Fatalf("expected 1 asset, got %d", len(emit.Assets))
+		}
+	})
+}

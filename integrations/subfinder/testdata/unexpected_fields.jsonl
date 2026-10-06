@@ -1,0 +1,2 @@
+{"host":"api.example.com","input":"example.com","source":"crtsh","asn":"AS13335","ip":["93.184.216.34"],"cloud_provider":"aws","future_metric":{"score":95.5,"tags":["prod","verified"]}}
+{"host":"cdn.example.com","input":"example.com","source":"virustotal","unknown_root_object":{"deep_key":"value"},"numeric_code":1092}

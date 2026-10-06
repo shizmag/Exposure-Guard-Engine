@@ -87,3 +87,98 @@ func TestSubfinderParseFixture(t *testing.T) {
 	}
 	_ = data
 }
+
+func TestSubfinderParseFixturesComprehensive(t *testing.T) {
+	adapter := subfinder.NewAdapter()
+	ctx := t.Context()
+
+	// 1. Valid single record
+	t.Run("valid", func(t *testing.T) {
+		f, err := os.Open("testdata/valid.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Assets) != 1 {
+			t.Fatalf("expected 1 asset, got %d", len(emit.Assets))
+		}
+		if emit.Assets[0].Value != "api.example.com" {
+			t.Errorf("expected api.example.com, got %s", emit.Assets[0].Value)
+		}
+	})
+
+	// 2. Multiple records
+	t.Run("multiple", func(t *testing.T) {
+		f, err := os.Open("testdata/multiple.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Assets) != 3 {
+			t.Fatalf("expected 3 assets, got %d", len(emit.Assets))
+		}
+	})
+
+	// 3. Empty output
+	t.Run("empty", func(t *testing.T) {
+		f, err := os.Open("testdata/empty.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on empty input: %v", err)
+		}
+		if len(emit.Assets) != 0 || len(emit.Observations) != 0 {
+			t.Errorf("expected 0 assets/obs, got %d/%d", len(emit.Assets), len(emit.Observations))
+		}
+	})
+
+	// 4. Malformed / truncated records
+	t.Run("malformed", func(t *testing.T) {
+		f, err := os.Open("testdata/malformed.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		// Must not panic or return error on malformed lines; skips them gracefully
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on malformed input: %v", err)
+		}
+		// Expect the 2 valid records to have been parsed
+		if len(emit.Assets) != 2 {
+			t.Fatalf("expected 2 valid assets from malformed file, got %d", len(emit.Assets))
+		}
+	})
+
+	// 5. Unexpected optional fields
+	t.Run("unexpected_fields", func(t *testing.T) {
+		f, err := os.Open("testdata/unexpected_fields.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on unknown fields: %v", err)
+		}
+		if len(emit.Assets) != 2 {
+			t.Fatalf("expected 2 assets, got %d", len(emit.Assets))
+		}
+	})
+}

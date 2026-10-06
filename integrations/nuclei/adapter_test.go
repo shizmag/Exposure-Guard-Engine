@@ -122,3 +122,100 @@ func TestCuratedPolicyFlags(t *testing.T) {
 		t.Errorf("expected -ni (no-interactsh) in args: %s", argsStr)
 	}
 }
+
+func TestNucleiParseFixturesComprehensive(t *testing.T) {
+	adapter := nuclei.NewAdapter()
+	ctx := t.Context()
+
+	// 1. Valid single record
+	t.Run("valid", func(t *testing.T) {
+		f, err := os.Open("testdata/valid.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Observations) != 1 {
+			t.Fatalf("expected 1 observation, got %d", len(emit.Observations))
+		}
+		if len(emit.Findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(emit.Findings))
+		}
+	})
+
+	// 2. Multiple records
+	t.Run("multiple", func(t *testing.T) {
+		f, err := os.Open("testdata/multiple.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(emit.Observations) != 4 {
+			t.Fatalf("expected 4 observations, got %d", len(emit.Observations))
+		}
+		// Medium, High, Critical produce findings; Info does not
+		if len(emit.Findings) != 3 {
+			t.Fatalf("expected 3 findings, got %d", len(emit.Findings))
+		}
+	})
+
+	// 3. Empty output
+	t.Run("empty", func(t *testing.T) {
+		f, err := os.Open("testdata/empty.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on empty input: %v", err)
+		}
+		if len(emit.Observations) != 0 || len(emit.Findings) != 0 {
+			t.Errorf("expected 0 items, got %d obs / %d findings", len(emit.Observations), len(emit.Findings))
+		}
+	})
+
+	// 4. Malformed / truncated records
+	t.Run("malformed", func(t *testing.T) {
+		f, err := os.Open("testdata/malformed.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on malformed input: %v", err)
+		}
+		if len(emit.Observations) != 2 {
+			t.Fatalf("expected 2 valid observations from malformed file, got %d", len(emit.Observations))
+		}
+	})
+
+	// 5. Unexpected optional fields
+	t.Run("unexpected_fields", func(t *testing.T) {
+		f, err := os.Open("testdata/unexpected_fields.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		emit := &integration.CollectEmitter{}
+		if err := adapter.Parse(ctx, f, emit); err != nil {
+			t.Fatalf("unexpected error on unknown fields: %v", err)
+		}
+		if len(emit.Observations) != 1 {
+			t.Fatalf("expected 1 observation, got %d", len(emit.Observations))
+		}
+	})
+}
