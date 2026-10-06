@@ -12,21 +12,21 @@ func TestDefaultNetworkPolicyBlocksDestinations(t *testing.T) {
 	policy := netguard.DefaultNetworkPolicy{}
 
 	blockedIPs := []string{
-		"169.254.169.254",          // AWS/GCP/Azure Cloud Metadata
-		"169.254.1.1",              // Link-Local IPv4
-		"127.0.0.1",                // Loopback IPv4
-		"127.0.0.2",                // Loopback IPv4
-		"10.0.0.1",                 // RFC 1918 Class A
-		"172.16.0.1",               // RFC 1918 Class B
-		"192.168.1.1",              // RFC 1918 Class C
-		"100.64.0.1",               // CGNAT Shared Address Space
-		"0.0.0.0",                  // Current network
-		"::1",                      // Loopback IPv6
-		"fe80::1",                  // Link-Local IPv6
-		"fc00::1",                  // Unique Local IPv6 (ULA)
-		"::ffff:169.254.169.254",   // IPv4-mapped IPv6 Metadata
-		"::ffff:127.0.0.1",         // IPv4-mapped IPv6 Loopback
-		"::ffff:10.0.0.1",          // IPv4-mapped IPv6 RFC 1918
+		"169.254.169.254",        // AWS/GCP/Azure Cloud Metadata
+		"169.254.1.1",            // Link-Local IPv4
+		"127.0.0.1",              // Loopback IPv4
+		"127.0.0.2",              // Loopback IPv4
+		"10.0.0.1",               // RFC 1918 Class A
+		"172.16.0.1",             // RFC 1918 Class B
+		"192.168.1.1",            // RFC 1918 Class C
+		"100.64.0.1",             // CGNAT Shared Address Space
+		"0.0.0.0",                // Current network
+		"::1",                    // Loopback IPv6
+		"fe80::1",                // Link-Local IPv6
+		"fc00::1",                // Unique Local IPv6 (ULA)
+		"::ffff:169.254.169.254", // IPv4-mapped IPv6 Metadata
+		"::ffff:127.0.0.1",       // IPv4-mapped IPv6 Loopback
+		"::ffff:10.0.0.1",        // IPv4-mapped IPv6 RFC 1918
 	}
 
 	for _, ipStr := range blockedIPs {
