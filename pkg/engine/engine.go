@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,11 +88,37 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		return nil, fmt.Errorf("%w: %s", netguard.ErrBlockedHostname, tgt.Host)
 	}
 
-	// Validate required integrations up-front
+	// Validate requested integrations policy and availability up-front
+	if req.Integrations != "" && !strings.EqualFold(req.Integrations, "auto") && !strings.EqualFold(req.Integrations, "none") {
+		parts := strings.Split(req.Integrations, ",")
+		for _, p := range parts {
+			id := strings.ToLower(strings.TrimSpace(p))
+			if id == "" {
+				continue
+			}
+			adapter, ok := e.registry.Get(id)
+			if !ok {
+				return nil, fmt.Errorf("requested integration %q is not registered", id)
+			}
+			meta := adapter.Metadata()
+			if !meta.SupportsMode(req.Mode) {
+				return nil, fmt.Errorf("integration policy violation: integration %q is not allowed in %s mode (requires mode: %s)", id, req.Mode, formatSupportedModes(meta.SupportedModes))
+			}
+		}
+	}
+
 	for _, reqInt := range req.RequireIntegrations {
-		adapter, ok := e.registry.Get(reqInt)
+		id := strings.ToLower(strings.TrimSpace(reqInt))
+		if id == "" {
+			continue
+		}
+		adapter, ok := e.registry.Get(id)
 		if !ok {
-			return nil, fmt.Errorf("required integration %q is not registered", reqInt)
+			return nil, fmt.Errorf("required integration %q is not registered", id)
+		}
+		meta := adapter.Metadata()
+		if !meta.SupportsMode(req.Mode) {
+			return nil, fmt.Errorf("integration policy violation: required integration %q is not allowed in %s mode (requires mode: %s)", id, req.Mode, formatSupportedModes(meta.SupportedModes))
 		}
 		inst, err := adapter.Detect(ctx, e.runner)
 		if err != nil || !inst.Installed || !inst.Compatible {
@@ -99,7 +126,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			if warn == "" && err != nil {
 				warn = err.Error()
 			}
-			return nil, fmt.Errorf("required integration %q is unavailable: %s", reqInt, warn)
+			return nil, fmt.Errorf("required integration %q is unavailable: %s", id, warn)
 		}
 	}
 
@@ -197,7 +224,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	// Integration Stage: Subfinder (Passive Asset Discovery)
 	// -----------------------------------------------------------------
 	if e.shouldRunIntegration("subfinder", req) && ctx.Err() == nil {
-		if subAdapter, ok := e.registry.Get("subfinder"); ok {
+		if parsedIP, err := netip.ParseAddr(tgt.Host); err == nil && parsedIP.IsValid() {
+			// Skip subdomain discovery on IP address targets (IPs cannot have subdomains)
+			stats.IntegrationsSkipped = append(stats.IntegrationsSkipped, "subfinder")
+		} else if subAdapter, ok := e.registry.Get("subfinder"); ok {
 			var subAssets []model.Asset
 			err := e.runIntegration(ctx, subAdapter, req, tgt, nil, &stats, stageDurations,
 				func(as []model.Asset) {
@@ -385,6 +415,14 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	return result, nil
 }
 
+func formatSupportedModes(modes []model.ScanMode) string {
+	var strs []string
+	for _, m := range modes {
+		strs = append(strs, string(m))
+	}
+	return strings.Join(strs, "/")
+}
+
 func (e *Engine) shouldRunIntegration(id string, req model.ScanRequest) bool {
 	adapter, ok := e.registry.Get(id)
 	if !ok {
@@ -441,8 +479,11 @@ func (e *Engine) shouldRunIntegration(id string, req model.ScanRequest) bool {
 		}
 		return false
 	case "deep":
-		// deep owned enables all tools
-		return req.Mode == model.ScanModeOwned
+		// deep owned enables all tools; deep public runs passive discovery (subfinder)
+		if req.Mode == model.ScanModeOwned {
+			return true
+		}
+		return id == "subfinder"
 	default:
 		// default profile ("website")
 		if req.Mode == model.ScanModePublic {

@@ -256,3 +256,81 @@ func TestEngineRequireIntegrationMissing(t *testing.T) {
 	require.Error(t, err, "expected error when required integration is missing")
 	assert.Contains(t, err.Error(), "required integration \"nonexistent-tool\" is not registered")
 }
+
+func TestEngineIntegrationPolicyEnforcement(t *testing.T) {
+	reg := integration.NewRegistry()
+	err := reg.Register(integrationtest.NewMockAdapter("subfinder", integration.Metadata{
+		ID:             "subfinder",
+		Binary:         "subfinder",
+		SupportedModes: []model.ScanMode{model.ScanModePublic, model.ScanModeOwned},
+	}))
+	require.NoError(t, err)
+
+	err = reg.Register(integrationtest.NewMockAdapter("httpx", integration.Metadata{
+		ID:             "httpx",
+		Binary:         "httpx",
+		SupportedModes: []model.ScanMode{model.ScanModeOwned},
+	}))
+	require.NoError(t, err)
+
+	eng := NewEngineWithIntegrations(nil, nil, reg, integrationtest.NewMockRunner())
+	limits := model.DefaultLimits()
+	limits.TotalTimeoutSeconds = 5
+
+	// Case 1: Explicitly requesting forbidden integration in public mode must fail with policy violation
+	t.Run("public_mode_forbidden_integration_rejected", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:       "example.com",
+			Mode:         model.ScanModePublic,
+			Limits:       limits,
+			Integrations: "subfinder,httpx",
+		}
+		_, err := eng.Run(t.Context(), Options{Request: req})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "integration policy violation")
+		assert.Contains(t, err.Error(), "integration \"httpx\" is not allowed in public mode")
+		assert.Contains(t, err.Error(), "requires mode: owned")
+	})
+
+	// Case 2: Requiring forbidden integration in public mode must fail
+	t.Run("public_mode_required_forbidden_integration_rejected", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:              "example.com",
+			Mode:                model.ScanModePublic,
+			Limits:              limits,
+			RequireIntegrations: []string{"httpx"},
+		}
+		_, err := eng.Run(t.Context(), Options{Request: req})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "integration policy violation")
+		assert.Contains(t, err.Error(), "required integration \"httpx\" is not allowed in public mode")
+	})
+
+	// Case 3: In owned mode, both are permitted
+	t.Run("owned_mode_permits_both", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:       "example.com",
+			Mode:         model.ScanModeOwned,
+			Limits:       limits,
+			Integrations: "subfinder,httpx",
+			Modules:      []string{}, // disable native network stages for quick test
+		}
+		res, err := eng.Run(t.Context(), Options{Request: req})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
+
+	// Case 4: In public mode, requesting allowed integration succeeds
+	t.Run("public_mode_allows_subfinder", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:       "example.com",
+			Mode:         model.ScanModePublic,
+			Limits:       limits,
+			Integrations: "subfinder",
+			Modules:      []string{},
+		}
+		res, err := eng.Run(t.Context(), Options{Request: req})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+	})
+}

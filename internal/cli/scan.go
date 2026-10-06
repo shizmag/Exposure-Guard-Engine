@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/exposureguard/exposureguard/internal/config"
+	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/engine"
 	"github.com/exposureguard/exposureguard/pkg/model"
 	"github.com/exposureguard/exposureguard/pkg/netguard"
@@ -48,6 +49,7 @@ type scanOptions struct {
 	snapshotOut         string
 	requestJSON         string
 	logLevel            string
+	allowPrivate        bool
 }
 
 func newScanCmd() *cobra.Command {
@@ -72,7 +74,7 @@ func newScanCmd() *cobra.Command {
 	flags.StringVar(&opts.format, "format", "human", "output format: human, json, jsonl")
 	flags.StringVarP(&opts.output, "output", "o", "", "file path to write results (default stdout)")
 	flags.StringVar(&opts.profile, "profile", "website", "scanning profile")
-	flags.StringVar(&opts.mode, "mode", "public", "scan mode: public or owned")
+	flags.StringVar(&opts.mode, "mode", "public", "scan authorization mode: public (safe, non-intrusive) or owned (caller declares authorization for extended active discovery)")
 	flags.StringSliceVar(&opts.modules, "modules", nil, "comma-separated modules to run")
 	flags.StringSliceVar(&opts.disableModules, "disable-module", nil, "modules to disable")
 	flags.StringVar(&opts.integrations, "integrations", "auto", "external integrations: auto, none, or comma-separated list")
@@ -99,6 +101,7 @@ func newScanCmd() *cobra.Command {
 	flags.StringVar(&opts.snapshotOut, "snapshot-out", "", "path to save generated snapshot")
 	flags.StringVar(&opts.requestJSON, "request-json", "", "path or '-' for stdin JSON ScanRequest")
 	flags.StringVar(&opts.logLevel, "log-level", "info", "log level: error, warn, info, debug")
+	flags.BoolVar(&opts.allowPrivate, "allow-private", false, "allow private and loopback targets for controlled local testing (cloud metadata remains strictly blocked)")
 
 	return cmd
 }
@@ -217,7 +220,12 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		encoder = protocol.NewEncoder(outWriter, req.ScanID)
 	}
 
-	eng := engine.NewEngine(nil, encoder)
+	var netPolicy netguard.NetworkPolicy = netguard.DefaultNetworkPolicy{}
+	if opts.allowPrivate || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "true" || os.Getenv("EXPOSUREGUARD_ALLOW_PRIVATE") == "1" {
+		netPolicy = netguard.AllowPrivateNetworkPolicy{}
+	}
+	scanEnv := checks.NewEnvironmentWithPolicy(nil, nil, netPolicy, req.Limits, encoder)
+	eng := engine.NewEngine(scanEnv, encoder)
 	result, err := eng.Run(timeoutCtx, engine.Options{
 		Request:          req,
 		PreviousSnapshot: prevSnap,

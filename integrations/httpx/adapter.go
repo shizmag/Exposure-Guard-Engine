@@ -153,7 +153,3 @@ func (a *Adapter) Plan(ctx context.Context, req integration.Request) (integratio
 func (a *Adapter) Parse(ctx context.Context, input io.Reader, emit integration.Emitter) error {
 	return Parse(ctx, input, emit)
 }
-
-func init() {
-	_ = integration.Register(NewAdapter())
-}

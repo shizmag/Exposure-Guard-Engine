@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/exposureguard/exposureguard/integrations"
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +34,8 @@ func (e *ExitCodeError) Unwrap() error {
 
 // NewRootCmd constructs the base cobra command.
 func NewRootCmd() *cobra.Command {
+	integrations.InitDefaultRegistry()
+
 	cmd := &cobra.Command{
 		Use:   buildinfo.EngineName,
 		Short: "ExposureGuard — defensive outside-in exposure scanner",
