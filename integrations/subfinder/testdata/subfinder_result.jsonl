@@ -1,0 +1,3 @@
+{"host":"api.example.com","input":"example.com","source":"crtsh"}
+{"host":"auth.example.com","input":"example.com","sources":["alienvault","hackertarget"]}
+{"host":"staging.example.com","input":"example.com","source":"waybackarchive"}

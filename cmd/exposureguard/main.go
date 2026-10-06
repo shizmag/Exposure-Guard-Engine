@@ -1,6 +1,9 @@
 package main
 
-import "github.com/exposureguard/exposureguard/internal/cli"
+import (
+	_ "github.com/exposureguard/exposureguard/integrations/subfinder"
+	"github.com/exposureguard/exposureguard/internal/cli"
+)
 
 func main() {
 	cli.Execute()
