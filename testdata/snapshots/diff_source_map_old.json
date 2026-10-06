@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "target": {
+    "raw": "https://example.com",
+    "url": "https://example.com/",
+    "scheme": "https",
+    "host": "example.com",
+    "port": 443,
+    "domain": "example.com"
+  },
+  "captured_at": "2026-10-06T10:00:00Z",
+  "assets": [
+    {
+      "id": "js_12345",
+      "kind": "javascript",
+      "value": "https://example.com/bundle.js"
+    }
+  ],
+  "observations": [
+    {
+      "id": "http_12345",
+      "kind": "http_response",
+      "subject": "https://example.com/",
+      "data": {
+        "status_code": 200
+      }
+    }
+  ],
+  "findings": [],
+  "summary": {
+    "total_assets": 1,
+    "total_observations": 1,
+    "total_findings": 0
+  }
+}

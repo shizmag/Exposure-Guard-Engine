@@ -1,0 +1,55 @@
+{
+  "schema_version": "1",
+  "target": {
+    "raw": "https://example.com",
+    "url": "https://example.com/",
+    "scheme": "https",
+    "host": "example.com",
+    "port": 443,
+    "domain": "example.com"
+  },
+  "captured_at": "2026-10-06T12:00:00Z",
+  "assets": [
+    {
+      "id": "js_12345",
+      "kind": "javascript",
+      "value": "https://example.com/bundle.js"
+    },
+    {
+      "id": "map_67890",
+      "kind": "source_map",
+      "value": "https://example.com/bundle.js.map"
+    }
+  ],
+  "observations": [
+    {
+      "id": "http_12345",
+      "kind": "http_response",
+      "subject": "https://example.com/",
+      "data": {
+        "status_code": 200
+      }
+    }
+  ],
+  "findings": [
+    {
+      "id": "finding_map_1",
+      "check_id": "frontend.javascript",
+      "rule_id": "frontend.public_source_map",
+      "severity": "medium",
+      "confidence": "high",
+      "title": "Public Source Map Accessible",
+      "description": "Source map exposes source code",
+      "asset": "https://example.com/bundle.js.map",
+      "evidence": {
+        "map_url": "https://example.com/bundle.js.map"
+      }
+    }
+  ],
+  "summary": {
+    "total_assets": 2,
+    "total_observations": 1,
+    "total_findings": 1,
+    "medium_findings": 1
+  }
+}
