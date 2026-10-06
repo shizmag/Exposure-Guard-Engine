@@ -66,12 +66,17 @@ Engine stages orchestrate by capability rather than coupling to specific tool bi
 | Profile | Allowed Modes | Integrations Activated | Notes |
 | :--- | :--- | :--- | :--- |
 | `quick` | `public`, `owned` | None (native only) | Fast DNS/TLS/HTTP inspection |
-| `standard` | `public`, `owned` | Subfinder (passive) | Safe outside-in reconnaissance |
-| `deep` | `owned` (strict) | Subfinder, httpx, Katana, Nuclei | Requires ownership verification |
+| `standard` | `public`, `owned` | Subfinder (passive in public; +httpx in owned) | Safe outside-in reconnaissance |
+| `deep` | `owned` (strict) | Subfinder, httpx, Katana, Nuclei | Extended active discovery |
 
-### Mode Enforcement
-* **`public`**: Only passive OSINT discovery (`subfinder`) is permitted. Active probes (`httpx`, `katana`, `nuclei`) are rejected with `policy-denied`.
-* **`owned`**: All approved adapters are permitted in accordance with configured scan boundaries and rate limits.
+### Mode Enforcement and Authorization Semantics
+
+* **`mode=public`**: Default mode. Strictly restricted to non-intrusive operations: native DNS/TLS/HTTP/crawling and passive OSINT discovery (`subfinder`). Active probing tools (`httpx`, `katana`, `nuclei`) are blocked. Explicitly requesting active tools via `--integrations` or `--require-integration` in public mode triggers an immediate `integration policy violation` error.
+* **`mode=owned`**: Enables extended active discovery tools (`httpx`, `katana`, `nuclei`) within configured rate limits and boundaries.
+* **Authorization Responsibility**:
+  > Specifying `--mode owned` on the CLI represents an **authorization declaration by the caller**. The standalone OSS CLI physically cannot prove domain ownership on its own.
+  >
+  > **ExposureGuard Cloud and orchestrators MUST complete authoritative proof-of-ownership** (such as DNS TXT record challenge or HTTP token verification) before dispatching any scan with `mode=owned` to an engine worker. The engine never assumes ownership verification occurred unless orchestrated by Cloud.
 
 ---
 
@@ -86,8 +91,8 @@ exposureguard doctor --format json
 exposureguard integrations list
 exposureguard integrations info nuclei
 
-# Run with custom integration selection
-exposureguard scan example.com --integrations subfinder,httpx
+# Run with custom integration selection (mode=owned required when selecting active tools)
+exposureguard scan example.com --mode owned --integrations subfinder,httpx
 exposureguard scan example.com --integrations none
 exposureguard scan example.com --disable-integration nuclei
 exposureguard scan example.com --require-integration subfinder

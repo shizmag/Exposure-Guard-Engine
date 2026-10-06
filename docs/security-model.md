@@ -48,3 +48,16 @@ ExposureGuard's `SafeDialer`:
 - Total scan download budget: 50 MiB.
 - Crawl scope: Exact same-host only. Third-party domains and subdomains are recorded passively but never crawled.
 - Static analysis only: Pure lexical parsing (`tdewolff/parse/v2/js`). No JavaScript execution or DOM runtime execution.
+
+---
+
+## 4. Subprocess Network Boundaries & Target Authorization
+
+### Subprocess Network Model
+Native Go checks are governed by `netguard.SafeDialer`. However, external discovery adapters (`httpx`, `katana`, `nuclei`) execute as standalone OS subprocesses with their own networking libraries.
+- In production cloud environments, container network egress filtering (iptables / nftables dropping RFC 1918 and `169.254.0.0/16` metadata) and cloud provider IMDSv2 hop-limit=1 are mandatory.
+- See [docs/deployment-security.md](deployment-security.md) for full deployment firewall and network namespace specifications.
+
+### Target Authorization & Owned Mode
+- Specifying `--mode owned` on the CLI represents an authorization declaration by the caller. Standalone OSS CLI cannot independently prove domain ownership.
+- ExposureGuard Cloud and SaaS orchestrators **MUST** complete authoritative proof-of-ownership (such as DNS TXT record challenge or HTTP token validation) before dispatching any scan with `mode=owned` to an engine worker.

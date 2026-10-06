@@ -5,11 +5,12 @@
 ExposureGuard Engine is a standalone, defensive outside-in scanner and inventory engine for web applications.
 
 ### What it is
-- Single static binary CLI (`exposureguard`) and Docker container.
+- Standalone CLI (`exposureguard`) with self-contained core engine and Docker distribution.
 - Safe, outside-in inspection of public websites and internet-facing assets.
 - Produces normalized deterministic **Snapshots** (`Observation`, `Asset`, `Finding`).
 - Detects meaningful state drift across time (**Changes** / Diff engine).
 - Zero-dependency worker process for ExposureGuard Cloud (communicates via stdin ScanRequest / stdout JSONL).
+- Enhanced discovery profiles (`standard`, `deep`) orchestrate pinned external discovery tools (`subfinder`, `httpx`, `katana`, `nuclei`).
 
 ### What it is NOT
 - Not a generic penetration testing or exploitation tool (no SQLi, XSS fuzzing, exploit payloads).

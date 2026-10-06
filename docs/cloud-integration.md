@@ -57,6 +57,11 @@ exposureguard scan \
 
 All fields are validated by the engine upon startup. Clamping ensures safety bounds cannot be bypassed.
 
+### Mode Authorization Contract
+- `mode: "public"`: Default safe outside-in scanning. Only native modules and passive discovery (`subfinder`) execute.
+- `mode: "owned"`: Authorizes extended active discovery (`httpx`, `katana`, `nuclei`).
+- **Cloud Obligation**: ExposureGuard Cloud **MUST** complete authoritative proof-of-ownership (e.g. DNS TXT record challenge or HTTP token validation) before dispatching a request with `"mode": "owned"` to any engine worker. The engine worker executes in an unprivileged runtime and cannot independently verify domain ownership.
+
 ---
 
 ## 3. Streaming Event Protocol (stdout JSONL)

@@ -42,8 +42,8 @@ exposureguard doctor
 # List registered integrations
 exposureguard integrations list
 
-# Run with specific discovery tools
-exposureguard scan example.com --integrations subfinder,httpx
+# Run with specific discovery tools (mode=owned required when selecting active tools)
+exposureguard scan example.com --mode owned --integrations subfinder,httpx
 
 # Deep scan for owned domains
 exposureguard scan example.com --mode owned --profile deep
@@ -85,12 +85,12 @@ Findings:
 ## What It Is vs What It Is NOT
 
 | What ExposureGuard Is | What ExposureGuard Is NOT |
-|---|---|
+| --- | --- |
 | Safe outside-in asset discovery & state inventory | Not an offensive penetration testing tool |
 | Passive DNS, TLS, HTTP, and static JS inspection | No exploit payloads, SQLi, or XSS fuzzing |
 | Referenced source-map detection and validation | No brute-force directory or port scanning |
 | Deterministic snapshots and state diffing over time | No form submissions or authentication attempts |
-| Single static binary CLI and Cloud worker process | No multi-tenant database, billing, or UI dashboard |
+| Self-contained core engine; orchestrates pinned tools for deep scans | No multi-tenant database, billing, or UI dashboard |
 
 ---
 
@@ -140,23 +140,27 @@ exposureguard scan https://example.com \
 
 ## Docker
 
-Run as an isolated, unprivileged container:
+Run as an unprivileged container:
 
 ```bash
+# Recommended: Pinned versioned image tag for reproducible execution
+docker run --rm ghcr.io/exposureguard/exposureguard:0.1.0 scan https://example.com --format json
+
+# Convenience tag for local development
 docker run --rm ghcr.io/exposureguard/exposureguard:latest scan https://example.com --format json
 ```
 
 ---
 
-## Security Model
+## Security Model & Deployment Safeguards
 
 ExposureGuard assumes all targets and redirects are untrusted:
-- **Strict SSRF Protection**: Prohibits connections to loopback (`127.0.0.0/8`, `::1`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata (`169.254.169.254`), and CGNAT.
+- **Strict SSRF Protection**: Native engine enforces `pkg/netguard.SafeDialer`, prohibiting connections to loopback (`127.0.0.0/8`, `::1`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), cloud metadata (`169.254.169.254`), and CGNAT.
 - **DNS Rebinding Prevention**: Validates candidate IPs before dialing and connects only to the validated IP literal.
 - **Strict Resource Bounds**: Crawl depth, page counts, response body size, and concurrency are strictly capped.
 - **Zero Secret Leakage**: Credential matches in bundles are masked and fingerprinted; plaintext values are never output.
-
-Read [docs/security-model.md](docs/security-model.md) for details.
+- **Subprocess Egress Isolation**: External tools (`httpx`, `katana`, `nuclei`) use independent network stacks. For production ExposureGuard Cloud workers, host/container network egress filtering (dropping RFC 1918 and `169.254.0.0/16` metadata) and cloud IMDSv2 hop-limit=1 are required. Read [docs/deployment-security.md](docs/deployment-security.md).
+- **Target Authorization**: Specifying `--mode owned` is a caller declaration; orchestrators and ExposureGuard Cloud MUST verify target ownership (e.g. DNS TXT record challenge) before dispatching owned scans. Read [docs/security-model.md](docs/security-model.md).
 
 ---
 
