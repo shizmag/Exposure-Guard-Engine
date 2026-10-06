@@ -1,0 +1,4 @@
+{"request":{"method":"GET","endpoint":"https://example.com/assets/bundle.js","source":"https://example.com/"},"response":{"status_code":200,"headers":{"content_type":"application/javascript"}}}
+{"request":{"method":"GET","endpoint":"https://example.com/api/v1/auth","source":"https://example.com/login"},"response":{"status_code":200,"headers":{"content_type":"application/json"}}}
+{"request":{"method":"GET","endpoint":"https://cdn.thirdparty.com/library.js","source":"https://example.com/"},"response":{"status_code":200,"headers":{"content_type":"application/javascript"}}}
+{"request":{"method":"GET","endpoint":"https://example.com/about","source":"https://example.com/"},"response":{"status_code":200,"headers":{"content_type":"text/html"}}}
