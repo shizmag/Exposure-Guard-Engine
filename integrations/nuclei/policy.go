@@ -3,22 +3,45 @@ package nuclei
 import "strings"
 
 const (
-	CuratedProfileVersion = "v1.0-defensive"
+	CuratedProfileVersion   = "v1.0-defensive"
+	CuratedTemplatesVersion = "10.5.0"
 )
+
+// CuratedTemplateIDs defines the deterministic, safety-audited set of Nuclei template IDs
+// permitted for outside-in defensive reconnaissance against pinned nuclei-templates 10.5.0.
+var CuratedTemplateIDs = []string{
+	"git-config",
+	"env-file",
+	"git-head",
+	"ds-store",
+	"backup-files",
+	"docker-compose-exposure",
+	"phpinfo-files",
+	"security-txt",
+	"robots-txt-disclosure",
+	"sitemap-xml-disclosure",
+	"svn-entries",
+	"aws-credentials-exposure",
+	"tls-version",
+	"ssl-dns-names",
+	"certificate-expiry",
+}
 
 // CuratedPolicy defines the defensive boundary for outside-in Nuclei checks.
 type CuratedPolicy struct {
-	AllowedTags       []string
-	ExcludedTags      []string
-	AllowedProtocols  []string
-	ExcludedProtocols []string
-	DisableInteractsh bool
-	MaxRateLimit      int
+	AllowedTemplateIDs []string
+	AllowedTags        []string
+	ExcludedTags       []string
+	AllowedProtocols   []string
+	ExcludedProtocols  []string
+	DisableInteractsh  bool
+	MaxRateLimit       int
 }
 
 // DefaultCuratedPolicy returns the defensive policy for ExposureGuard monitoring.
 func DefaultCuratedPolicy() CuratedPolicy {
 	return CuratedPolicy{
+		AllowedTemplateIDs: CuratedTemplateIDs,
 		AllowedTags: []string{
 			"exposure",
 			"misconfig",
@@ -68,6 +91,9 @@ func DefaultCuratedPolicy() CuratedPolicy {
 func (p CuratedPolicy) BuildCLIArgs() []string {
 	var args []string
 
+	if len(p.AllowedTemplateIDs) > 0 {
+		args = append(args, "-id", strings.Join(p.AllowedTemplateIDs, ","))
+	}
 	if len(p.AllowedTags) > 0 {
 		args = append(args, "-tags", strings.Join(p.AllowedTags, ","))
 	}

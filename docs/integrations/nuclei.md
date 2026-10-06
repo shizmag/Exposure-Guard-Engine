@@ -13,48 +13,65 @@
 
 ---
 
-## 2. Curated Defensive Policy
+## 2. Versioned Curated Defensive Ruleset
 
-Nuclei is strictly governed by ExposureGuard's defensive allowlist policy. **Uncontrolled execution with all templates is strictly prohibited.**
+Nuclei is strictly governed by ExposureGuard's defensive allowlist policy. **Uncontrolled execution with arbitrary community templates is strictly prohibited.**
 
-### Allowed Tags
-* `exposure`
-* `misconfig`, `misconfiguration`
-* `config`
-* `token`, `artifact`
-* `disclosure`, `dev`
+Instead of relying solely on coarse CLI tags, ExposureGuard enforces an exact, versioned curated ruleset defined in:
+* `profiles/nuclei/v1/manifest.json`
+* `profiles/nuclei/v1/templates.txt`
 
-### Excluded Tags (Explicit Deny-List)
-* `fuzz`, `dos`, `bruteforce`, `brute-force`
-* `intrusive`, `oast`, `interactsh`
-* `rce`, `code-execution`
-* `headless`, `active`
-* `sqli`, `xss`, `lfi`, `ssrf`, `cve`
+### Exact Selected Template IDs
+Every check must match an exact allowed template ID from the curated profile:
+* `git-config`
+* `env-file`
+* `git-head`
+* `ds-store`
+* `backup-files`
+* `docker-compose-exposure`
+* `phpinfo-files`
+* `security-txt`
+* `robots-txt-disclosure`
+* `sitemap-xml-disclosure`
+* `svn-entries`
+* `aws-credentials-exposure`
+* `tls-version`
+* `ssl-dns-names`
+* `certificate-expiry`
 
-### Excluded Protocols
-* `headless`, `tcp`, `code`, `workflow`, `websocket` (Allowed: `http`, `ssl`, `dns`)
-* Out-of-band testing disabled via `-ni` (`-no-interactsh`).
+The adapter executes Nuclei with `-id <curated-ids>` so upstream template updates never change effective checks unexpectedly.
+
+### Safety Invariants
+* **Forbidden Features**: `headless`, `code`, `javascript`, `interactsh` / `oast`, raw `tcp`, `websocket`.
+* **Allowed Protocols**: `http`, `ssl`, `dns` only.
+* **Deny-List Tags**: `fuzz`, `dos`, `bruteforce`, `intrusive`, `rce`, `code-execution`, `headless`, `active`, `sqli`, `xss`, `lfi`, `ssrf`, `cve`, `destructive`.
+* **Out-of-band testing**: strictly disabled via `-ni` (`-no-interactsh`).
 
 ---
 
 ## 3. Template Pinning & Reproducibility
 
 * Scans **never** perform automatic template updates during runtime.
-* Templates are pinned to official release `v10.5.0` and located in deterministic system paths:
-  * Local host: `$EXPOSUREGUARD_HOME/tools/nuclei/templates/`
-  * Docker container: `/opt/exposureguard/nuclei-templates/`
-* Result metadata includes exact ruleset and profile version identifiers (`v1.0-defensive`).
+* Templates are pinned to official release `v10.5.0` in `tools.lock.json`.
+* Scanning provenance records:
+  * `ruleset_version`: `v1.0-defensive`
+  * `templates_version`: `10.5.0`
+  * `source_template_id`: exact matched template
+  * `source_severity`: upstream severity string
 
 ---
 
 ## 4. Normalization and Provenance
 
-### Severity Mapping
-* Upstream `critical` -> normalized to `model.SeverityHigh` (defensive ceiling)
+### Severity Preservation
+Both upstream and normalized severities are preserved in observations and finding evidence details:
+* Upstream `critical` -> `model.SeverityCritical` (preserved, not downgraded)
 * Upstream `high` -> `model.SeverityHigh`
 * Upstream `medium` -> `model.SeverityMedium`
 * Upstream `low` -> `model.SeverityLow`
-* Upstream `info` -> `model.SeverityInfo` (emitted as observation only, not actionable finding)
+* Upstream `info` -> `model.SeverityInfo` (emitted as observation only)
+
+Every finding contains `source_severity` and `normalized_severity` separately in its evidence details.
 
 ### Provenance Object
 Every observation records explicit provenance to track origin:
@@ -64,8 +81,11 @@ Every observation records explicit provenance to track origin:
     "type": "integration",
     "id": "nuclei",
     "version": "3.11.1",
-    "rule": "git-config",
-    "profile": "v1.0-defensive"
+    "source_template_id": "git-config",
+    "source_template_version": "10.5.0",
+    "ruleset_version": "v1.0-defensive",
+    "source_severity": "medium",
+    "normalized_severity": "medium"
   }
 }
 ```

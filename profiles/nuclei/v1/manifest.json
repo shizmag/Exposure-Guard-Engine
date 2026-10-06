@@ -1,0 +1,137 @@
+{
+  "ruleset_version": "v1.0-defensive",
+  "templates_version": "10.5.0",
+  "description": "ExposureGuard curated defensive outside-in ruleset for nuclei-templates 10.5.0",
+  "safety_criteria": {
+    "allowed_protocols": ["http", "ssl", "dns"],
+    "disallowed_protocols": ["headless", "code", "javascript", "tcp", "websocket", "workflow"],
+    "disallowed_features": ["headless", "code", "javascript", "interactsh", "oast", "raw-sockets"],
+    "disallowed_tags": [
+      "fuzz", "dos", "bruteforce", "brute-force", "intrusive",
+      "rce", "code-execution", "headless", "active", "sqli",
+      "xss", "lfi", "ssrf", "cve", "destructive"
+    ]
+  },
+  "allowed_templates": [
+    {
+      "id": "git-config",
+      "path": "http/exposures/configs/git-config.yaml",
+      "protocol": "http",
+      "severity": "medium",
+      "tags": ["exposure", "config", "git"],
+      "requests_count": 1
+    },
+    {
+      "id": "env-file",
+      "path": "http/exposures/configs/env-file.yaml",
+      "protocol": "http",
+      "severity": "high",
+      "tags": ["exposure", "misconfig", "env"],
+      "requests_count": 1
+    },
+    {
+      "id": "git-head",
+      "path": "http/exposures/configs/git-head.yaml",
+      "protocol": "http",
+      "severity": "low",
+      "tags": ["exposure", "config", "git"],
+      "requests_count": 1
+    },
+    {
+      "id": "ds-store",
+      "path": "http/exposures/files/ds-store.yaml",
+      "protocol": "http",
+      "severity": "low",
+      "tags": ["exposure", "files", "macos"],
+      "requests_count": 1
+    },
+    {
+      "id": "backup-files",
+      "path": "http/exposures/backups/backup-files.yaml",
+      "protocol": "http",
+      "severity": "medium",
+      "tags": ["exposure", "backup", "files"],
+      "requests_count": 1
+    },
+    {
+      "id": "docker-compose-exposure",
+      "path": "http/exposures/configs/docker-compose-exposure.yaml",
+      "protocol": "http",
+      "severity": "high",
+      "tags": ["exposure", "config", "docker"],
+      "requests_count": 1
+    },
+    {
+      "id": "phpinfo-files",
+      "path": "http/exposures/files/phpinfo-files.yaml",
+      "protocol": "http",
+      "severity": "low",
+      "tags": ["exposure", "phpinfo", "dev"],
+      "requests_count": 1
+    },
+    {
+      "id": "security-txt",
+      "path": "http/exposures/well-known/security-txt.yaml",
+      "protocol": "http",
+      "severity": "info",
+      "tags": ["exposure", "well-known"],
+      "requests_count": 1
+    },
+    {
+      "id": "robots-txt-disclosure",
+      "path": "http/exposures/files/robots-txt.yaml",
+      "protocol": "http",
+      "severity": "info",
+      "tags": ["exposure", "disclosure"],
+      "requests_count": 1
+    },
+    {
+      "id": "sitemap-xml-disclosure",
+      "path": "http/exposures/files/sitemap-xml.yaml",
+      "protocol": "http",
+      "severity": "info",
+      "tags": ["exposure", "disclosure"],
+      "requests_count": 1
+    },
+    {
+      "id": "svn-entries",
+      "path": "http/exposures/configs/svn-entries.yaml",
+      "protocol": "http",
+      "severity": "low",
+      "tags": ["exposure", "config", "svn"],
+      "requests_count": 1
+    },
+    {
+      "id": "aws-credentials-exposure",
+      "path": "http/exposures/tokens/aws-credentials.yaml",
+      "protocol": "http",
+      "severity": "critical",
+      "tags": ["exposure", "token", "aws"],
+      "requests_count": 1
+    },
+    {
+      "id": "tls-version",
+      "path": "ssl/tls-version.yaml",
+      "protocol": "ssl",
+      "severity": "info",
+      "tags": ["ssl", "tls", "tech"],
+      "requests_count": 1
+    },
+    {
+      "id": "ssl-dns-names",
+      "path": "ssl/ssl-dns-names.yaml",
+      "protocol": "ssl",
+      "severity": "info",
+      "tags": ["ssl", "tls", "san"],
+      "requests_count": 1
+    },
+    {
+      "id": "certificate-expiry",
+      "path": "ssl/certificate-expiry.yaml",
+      "protocol": "ssl",
+      "severity": "low",
+      "tags": ["ssl", "tls", "expiry"],
+      "requests_count": 1
+    }
+  ]
+}

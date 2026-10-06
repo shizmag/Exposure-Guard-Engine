@@ -36,7 +36,7 @@ type Record struct {
 func NormalizeSeverity(raw string) model.Severity {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "critical":
-		return model.SeverityHigh // Normalize defensive ceiling to High unless verified exploitation
+		return model.SeverityCritical
 	case "high":
 		return model.SeverityHigh
 	case "medium":
@@ -63,6 +63,11 @@ func MapRecord(rec Record, emit integration.Emitter) {
 	}
 
 	sev := NormalizeSeverity(rec.Info.Severity)
+	rawSeverity := strings.ToLower(strings.TrimSpace(rec.Info.Severity))
+	if rawSeverity == "" {
+		rawSeverity = "unknown"
+	}
+
 	conf := model.ConfidenceMedium
 	if len(rec.ExtractedResults) > 0 {
 		conf = model.ConfidenceHigh
@@ -70,18 +75,23 @@ func MapRecord(rec Record, emit integration.Emitter) {
 
 	// 1. Emit normalized Observation with full provenance
 	obsData := map[string]any{
-		"template_id":  rec.TemplateID,
-		"matched_at":   rec.MatchedAt,
-		"host":         rec.Host,
-		"type":         rec.Type,
-		"raw_severity": rec.Info.Severity,
-		"extracted":    rec.ExtractedResults,
+		"template_id":         rec.TemplateID,
+		"matched_at":          rec.MatchedAt,
+		"host":                rec.Host,
+		"type":                rec.Type,
+		"raw_severity":        rawSeverity,
+		"source_severity":     rawSeverity,
+		"normalized_severity": string(sev),
+		"extracted":           rec.ExtractedResults,
 		"provenance": map[string]any{
-			"type":    "integration",
-			"id":      "nuclei",
-			"version": TestedVersion,
-			"rule":    rec.TemplateID,
-			"profile": CuratedProfileVersion,
+			"type":                    "integration",
+			"id":                      "nuclei",
+			"version":                 TestedVersion,
+			"source_template_id":      rec.TemplateID,
+			"source_template_version": CuratedTemplatesVersion,
+			"ruleset_version":         CuratedProfileVersion,
+			"source_severity":         rawSeverity,
+			"normalized_severity":     string(sev),
 		},
 	}
 
@@ -109,6 +119,11 @@ func MapRecord(rec Record, emit integration.Emitter) {
 		h := sha256.Sum256([]byte(rec.TemplateID + ":" + subject))
 		fp := hex.EncodeToString(h[:])[:16]
 
+		var maskedPreview string
+		if len(rec.ExtractedResults) > 0 {
+			maskedPreview = strings.Join(rec.ExtractedResults, ", ")
+		}
+
 		finding := model.Finding{
 			CheckID:     "integration.nuclei",
 			RuleID:      "nuclei." + rec.TemplateID,
@@ -118,8 +133,16 @@ func MapRecord(rec Record, emit integration.Emitter) {
 			Description: desc,
 			Asset:       subject,
 			Evidence: model.Evidence{
-				URL:         subject,
-				Fingerprint: fp,
+				URL:           subject,
+				Fingerprint:   fp,
+				MaskedPreview: maskedPreview,
+				Details: map[string]any{
+					"source_template_id":      rec.TemplateID,
+					"source_template_version": CuratedTemplatesVersion,
+					"ruleset_version":         CuratedProfileVersion,
+					"source_severity":         rawSeverity,
+					"normalized_severity":     string(sev),
+				},
 			},
 			Remediation: "Restrict public access or remove the exposed file/configuration.",
 		}

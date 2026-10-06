@@ -1,0 +1,15 @@
+git-config
+env-file
+git-head
+ds-store
+backup-files
+docker-compose-exposure
+phpinfo-files
+security-txt
+robots-txt-disclosure
+sitemap-xml-disclosure
+svn-entries
+aws-credentials-exposure
+tls-version
+ssl-dns-names
+certificate-expiry

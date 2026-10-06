@@ -178,7 +178,3 @@ func resolveDefaultTemplatesPath() string {
 	}
 	return ""
 }
-
-func init() {
-	_ = integration.Register(NewAdapter())
-}
