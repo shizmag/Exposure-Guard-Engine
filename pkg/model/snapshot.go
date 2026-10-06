@@ -17,6 +17,7 @@ type SnapshotSummary struct {
 // Snapshot represents a normalized, deterministic point-in-time state of an asset/target.
 type Snapshot struct {
 	SchemaVersion string          `json:"schema_version"`
+	Fingerprint   string          `json:"fingerprint,omitempty"`
 	Target        Target          `json:"target"`
 	CapturedAt    time.Time       `json:"captured_at,omitzero"`
 	Assets        []Asset         `json:"assets"`

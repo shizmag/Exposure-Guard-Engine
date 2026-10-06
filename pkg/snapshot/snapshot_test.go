@@ -71,3 +71,66 @@ func TestSnapshotGoldenCompatibility(t *testing.T) {
 	assert.Len(t, snap.Findings, 1)
 	assert.Equal(t, 1, snap.Summary.TotalFindings)
 }
+
+func TestComputeCanonicalHashInvariants(t *testing.T) {
+	tgt := model.Target{
+		URL:    "https://example.com/",
+		Host:   "example.com",
+		Scheme: "https",
+		Port:   443,
+	}
+
+	assetsA := []model.Asset{
+		{Kind: model.AssetKindHostname, Value: "a.example.com"},
+		{Kind: model.AssetKindHostname, Value: "b.example.com"},
+	}
+	assetsB := []model.Asset{
+		{Kind: model.AssetKindHostname, Value: "b.example.com"},
+		{Kind: model.AssetKindHostname, Value: "a.example.com"},
+	}
+
+	obsA := []model.Observation{
+		{Kind: "dns_record", Subject: "example.com", Data: map[string]any{"value": "1.1.1.1", "response_time_ms": 12, "ttl": 300}},
+	}
+	obsB := []model.Observation{
+		{Kind: "dns_record", Subject: "example.com", Data: map[string]any{"value": "1.1.1.1", "response_time_ms": 99, "ttl": 60}},
+	}
+
+	snapA := Build(tgt, assetsA, obsA, nil, time.Now().Add(-10*time.Hour))
+	snapB := Build(tgt, assetsB, obsB, nil, time.Now())
+
+	assert.NotEmpty(t, snapA.Fingerprint)
+	assert.Equal(t, snapA.Fingerprint, snapB.Fingerprint, "canonical hash must match despite different timestamps, ordering, and volatile TTL/timing")
+}
+
+func TestSnapshotDeterminismStress(t *testing.T) {
+	tgt := model.Target{
+		URL:    "https://example.com/",
+		Host:   "example.com",
+		Scheme: "https",
+		Port:   443,
+	}
+
+	var baseFingerprint string
+	runs := 20
+	for i := 0; i < runs; i++ {
+		assets := []model.Asset{
+			{Kind: model.AssetKindJavaScript, Value: "https://example.com/app.js"},
+			{Kind: model.AssetKindURL, Value: "https://example.com/about"},
+			{Kind: model.AssetKindHostname, Value: "api.example.com"},
+		}
+		obs := []model.Observation{
+			{Kind: "http_response", Subject: "https://example.com/", Data: map[string]any{"status_code": 200, "response_time_ms": i * 10}},
+		}
+		findings := []model.Finding{
+			{RuleID: "http.missing_hsts", Severity: model.SeverityLow, Asset: "https://example.com/"},
+		}
+
+		snap := Build(tgt, assets, obs, findings, time.Now().Add(time.Duration(i)*time.Minute))
+		if i == 0 {
+			baseFingerprint = snap.Fingerprint
+		} else {
+			assert.Equal(t, baseFingerprint, snap.Fingerprint, "repeated run %d must produce identical fingerprint", i)
+		}
+	}
+}

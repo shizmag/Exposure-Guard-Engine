@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exposureguard.dev/schemas/snapshot-v1.schema.json",
+  "title": "SnapshotV1",
+  "description": "Normalized, deterministic inventory of assets, observations, and findings (Schema v1)",
+  "type": "object",
+  "required": ["schema_version", "target", "assets", "observations", "findings", "summary"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "fingerprint": {
+      "type": "string",
+      "description": "Canonical SHA-256 hash of normalized snapshot state"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "target": {
+      "type": "object",
+      "required": ["raw", "url", "scheme", "host"],
+      "properties": {
+        "raw": { "type": "string" },
+        "url": { "type": "string" },
+        "scheme": { "type": "string" },
+        "host": { "type": "string" },
+        "domain": { "type": "string" },
+        "port": { "type": "integer" }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "value"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["hostname", "url", "javascript", "source_map", "endpoint_candidate", "external_reference"] },
+          "value": { "type": "string" },
+          "url": { "type": "string" },
+          "source": { "type": "string" },
+          "discovered_via": { "type": "string" },
+          "attributes": { "type": "object", "additionalProperties": { "type": "string" } }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "subject", "data"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "subject": { "type": "string" },
+          "data": { "type": "object" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule_id", "severity", "title", "asset"],
+        "properties": {
+          "id": { "type": "string" },
+          "rule_id": { "type": "string" },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+          "confidence": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "asset": { "type": "string" },
+          "evidence": { "type": "object" },
+          "remediation": { "type": "string" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_assets", "total_observations", "total_findings"],
+      "properties": {
+        "total_assets": { "type": "integer" },
+        "total_observations": { "type": "integer" },
+        "total_findings": { "type": "integer" },
+        "critical_findings": { "type": "integer" },
+        "high_findings": { "type": "integer" },
+        "medium_findings": { "type": "integer" },
+        "low_findings": { "type": "integer" },
+        "info_findings": { "type": "integer" }
+      }
+    }
+  },
+  "additionalProperties": true
+}

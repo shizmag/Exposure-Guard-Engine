@@ -118,3 +118,108 @@ func TestDiffObservations(t *testing.T) {
 	assert.True(t, changeTypes["http.security_header_added"])
 	assert.True(t, changeTypes["http.security_header_changed"])
 }
+
+func TestDiffZeroChangesOnIdenticalState(t *testing.T) {
+	snapA := &model.Snapshot{
+		Assets: []model.Asset{
+			{ID: "1", Kind: model.AssetKindHostname, Value: "a.example.com"},
+			{ID: "2", Kind: model.AssetKindHostname, Value: "b.example.com"},
+		},
+		Observations: []model.Observation{
+			{ID: "o1", Kind: "http_response", Subject: "https://example.com/", Data: map[string]any{"status_code": 200}},
+		},
+		Findings: []model.Finding{
+			{ID: "f1", RuleID: "tls.expired", Asset: "example.com", Severity: model.SeverityHigh},
+		},
+	}
+
+	snapB := &model.Snapshot{
+		Assets: []model.Asset{
+			{ID: "2", Kind: model.AssetKindHostname, Value: "b.example.com"},
+			{ID: "1", Kind: model.AssetKindHostname, Value: "a.example.com"},
+		},
+		Observations: []model.Observation{
+			{ID: "o1", Kind: "http_response", Subject: "https://example.com/", Data: map[string]any{"status_code": 200}},
+		},
+		Findings: []model.Finding{
+			{ID: "f1", RuleID: "tls.expired", Asset: "example.com", Severity: model.SeverityHigh},
+		},
+	}
+
+	changes := Compare(snapA, snapB)
+	assert.Empty(t, changes, "identical semantic states must produce zero changes")
+}
+
+func TestDiffNoiseSuppression(t *testing.T) {
+	snapA := &model.Snapshot{
+		Observations: []model.Observation{
+			{
+				Kind:    "security_headers",
+				Subject: "https://example.com/",
+				Data: map[string]any{
+					"content_security_policy":   "default-src 'self'",
+					"strict_transport_security": "max-age=31536000",
+				},
+			},
+		},
+	}
+
+	snapB := &model.Snapshot{
+		Observations: []model.Observation{
+			{
+				Kind:    "security_headers",
+				Subject: "https://example.com/",
+				Data: map[string]any{
+					"content_security_policy":   "default-src 'self'",
+					"strict_transport_security": "max-age=31536000",
+				},
+			},
+		},
+	}
+
+	changes := Compare(snapA, snapB)
+	assert.Empty(t, changes, "volatile or identical headers must produce zero changes")
+}
+
+func TestDiffSemanticTransitions(t *testing.T) {
+	oldSnap := &model.Snapshot{
+		Assets: []model.Asset{
+			{ID: "sub1", Kind: model.AssetKindHostname, Value: "old-staging.example.com"},
+		},
+		Findings: []model.Finding{
+			{ID: "f1", RuleID: "http.missing_hsts", Asset: "example.com", Title: "Missing HSTS", Severity: model.SeverityLow},
+		},
+	}
+
+	newSnap := &model.Snapshot{
+		Assets: []model.Asset{
+			{ID: "map1", Kind: model.AssetKindSourceMap, Value: "https://example.com/main.js.map"},
+		},
+		Findings: nil, // finding resolved!
+	}
+
+	changes := Compare(oldSnap, newSnap)
+	require.NotEmpty(t, changes)
+
+	types := make(map[string]model.Change)
+	for _, ch := range changes {
+		types[ch.Type] = ch
+		assert.NotEmpty(t, ch.ID, "change must have a non-empty deterministic ID")
+		assert.Len(t, ch.ID, 16, "change ID must be 16-hex characters")
+	}
+
+	assert.Contains(t, types, "asset.removed")
+	assert.Equal(t, "old-staging.example.com", types["asset.removed"].Subject)
+
+	assert.Contains(t, types, "finding.resolved")
+	assert.Equal(t, "example.com", types["finding.resolved"].Subject)
+
+	assert.Contains(t, types, "frontend.source_map_appeared")
+	assert.Equal(t, "https://example.com/main.js.map", types["frontend.source_map_appeared"].Subject)
+}
+
+func TestDiffNilSafety(t *testing.T) {
+	assert.Nil(t, Compare(nil, nil))
+	assert.Nil(t, Compare(&model.Snapshot{}, nil))
+	assert.Nil(t, Compare(nil, &model.Snapshot{}))
+}

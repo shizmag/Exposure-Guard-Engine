@@ -100,7 +100,7 @@ func Build(target model.Target, assets []model.Asset, obs []model.Observation, f
 		capturedAt = time.Now().UTC()
 	}
 
-	return model.Snapshot{
+	snap := model.Snapshot{
 		SchemaVersion: buildinfo.SnapshotSchemaVersion,
 		Target:        target,
 		CapturedAt:    capturedAt,
@@ -109,4 +109,6 @@ func Build(target model.Target, assets []model.Asset, obs []model.Observation, f
 		Findings:      normFindings,
 		Summary:       summary,
 	}
+	snap.Fingerprint = ComputeCanonicalHash(&snap)
+	return snap
 }
