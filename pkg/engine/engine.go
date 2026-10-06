@@ -20,6 +20,7 @@ import (
 	"github.com/exposureguard/exposureguard/pkg/integration"
 	"github.com/exposureguard/exposureguard/pkg/model"
 	"github.com/exposureguard/exposureguard/pkg/netguard"
+	"github.com/exposureguard/exposureguard/pkg/profile"
 	"github.com/exposureguard/exposureguard/pkg/protocol"
 	"github.com/exposureguard/exposureguard/pkg/snapshot"
 	"github.com/exposureguard/exposureguard/pkg/target"
@@ -60,11 +61,79 @@ type Options struct {
 	PreviousSnapshot *model.Snapshot
 }
 
+// Plan computes the preview execution plan for a scan request without performing any network traffic.
+func (e *Engine) Plan(req model.ScanRequest) (*model.ScanPlan, error) {
+	req.Limits.Clamp()
+
+	tgt, err := target.Parse(req.Target)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", netguard.ErrBlockedScheme, err)
+	}
+
+	var policy netguard.NetworkPolicy = netguard.DefaultNetworkPolicy{}
+	if e.env != nil && e.env.Policy != nil {
+		policy = e.env.Policy
+	}
+	if policy.IsBlockedHostname(tgt.Host) {
+		return nil, fmt.Errorf("%w: %s", netguard.ErrBlockedHostname, tgt.Host)
+	}
+
+	profDef, err := profile.Resolve(req.Profile)
+	if err != nil {
+		return nil, err
+	}
+	req.Profile = string(profDef.ID)
+	if profDef.RequiredMode != "" && req.Mode != profDef.RequiredMode {
+		return nil, fmt.Errorf("profile %q requires %s mode (current mode: %s)", profDef.ID, profDef.RequiredMode, req.Mode)
+	}
+
+	// Calculate enabled native modules
+	allNativeCandidates := profDef.NativeChecks
+	if len(req.Modules) > 0 {
+		allNativeCandidates = req.Modules
+	}
+	var activeModules []string
+	for _, m := range allNativeCandidates {
+		if isModuleEnabled(m, allNativeCandidates, req.DisableModules) {
+			activeModules = append(activeModules, m)
+		}
+	}
+
+	// Calculate enabled integrations
+	var activeIntegrations []string
+	if e.registry != nil {
+		for _, adapter := range e.registry.List() {
+			id := adapter.ID()
+			if e.shouldRunIntegration(id, req) {
+				activeIntegrations = append(activeIntegrations, id)
+			}
+		}
+	}
+
+	return &model.ScanPlan{
+		Target:        tgt.URL,
+		Host:          tgt.Host,
+		Scheme:        tgt.Scheme,
+		Profile:       req.Profile,
+		Mode:          req.Mode,
+		NativeModules: activeModules,
+		Integrations:  activeIntegrations,
+		Limits:        req.Limits,
+	}, nil
+}
+
 // Run executes the full defensive scanning workflow.
 func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, error) {
 	start := time.Now().UTC()
 	req := opts.Request
 	req.Limits.Clamp()
+
+	if req.ScanID != "" {
+		scanTempDir := filepath.Clean(filepath.Join(os.TempDir(), "exposureguard", req.ScanID))
+		defer func() {
+			_ = os.RemoveAll(scanTempDir)
+		}()
+	}
 
 	var errorsList []string
 
@@ -86,6 +155,19 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	// Immediate SSRF hostname rejection
 	if policy.IsBlockedHostname(tgt.Host) {
 		return nil, fmt.Errorf("%w: %s", netguard.ErrBlockedHostname, tgt.Host)
+	}
+
+	// 2. Resolve profile and enforce policy boundaries
+	profDef, err := profile.Resolve(req.Profile)
+	if err != nil {
+		return nil, err
+	}
+	req.Profile = string(profDef.ID)
+	if profDef.RequiredMode != "" && req.Mode != profDef.RequiredMode {
+		return nil, fmt.Errorf("profile %q requires %s mode (current mode: %s)", profDef.ID, profDef.RequiredMode, req.Mode)
+	}
+	if len(req.Modules) == 0 {
+		req.Modules = profDef.NativeChecks
 	}
 
 	// Validate requested integrations policy and availability up-front
@@ -466,31 +548,11 @@ func (e *Engine) shouldRunIntegration(id string, req model.ScanRequest) bool {
 	}
 
 	// 6. Profile default mapping
-	switch strings.ToLower(req.Profile) {
-	case "quick":
+	profDef, err := profile.Resolve(req.Profile)
+	if err != nil {
 		return false
-	case "standard":
-		// standard enables subfinder in public mode; httpx in owned mode
-		if id == "subfinder" {
-			return true
-		}
-		if id == "httpx" && req.Mode == model.ScanModeOwned {
-			return true
-		}
-		return false
-	case "deep":
-		// deep owned enables all tools; deep public runs passive discovery (subfinder)
-		if req.Mode == model.ScanModeOwned {
-			return true
-		}
-		return id == "subfinder"
-	default:
-		// default profile ("website")
-		if req.Mode == model.ScanModePublic {
-			return id == "subfinder"
-		}
-		return true
 	}
+	return profDef.SupportsIntegration(id)
 }
 
 type engineEmitter struct {

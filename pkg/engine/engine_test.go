@@ -334,3 +334,95 @@ func TestEngineIntegrationPolicyEnforcement(t *testing.T) {
 		require.NotNil(t, res)
 	})
 }
+
+func TestEnginePlan(t *testing.T) {
+	reg := integration.NewRegistry()
+	require.NoError(t, reg.Register(integrationtest.NewMockAdapter("subfinder", integration.Metadata{
+		ID:             "subfinder",
+		Binary:         "subfinder",
+		SupportedModes: []model.ScanMode{model.ScanModePublic, model.ScanModeOwned},
+	})))
+	require.NoError(t, reg.Register(integrationtest.NewMockAdapter("httpx", integration.Metadata{
+		ID:             "httpx",
+		Binary:         "httpx",
+		SupportedModes: []model.ScanMode{model.ScanModeOwned},
+	})))
+	require.NoError(t, reg.Register(integrationtest.NewMockAdapter("katana", integration.Metadata{
+		ID:             "katana",
+		Binary:         "katana",
+		SupportedModes: []model.ScanMode{model.ScanModeOwned},
+	})))
+	require.NoError(t, reg.Register(integrationtest.NewMockAdapter("nuclei", integration.Metadata{
+		ID:             "nuclei",
+		Binary:         "nuclei",
+		SupportedModes: []model.ScanMode{model.ScanModeOwned},
+	})))
+
+	eng := NewEngineWithIntegrations(nil, nil, reg, integrationtest.NewMockRunner())
+
+	t.Run("plan_standard_profile", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:  "example.com",
+			Profile: "standard",
+			Mode:    model.ScanModePublic,
+		}
+		plan, err := eng.Plan(req)
+		require.NoError(t, err)
+		assert.Equal(t, "https://example.com/", plan.Target)
+		assert.Equal(t, "standard", plan.Profile)
+		assert.Equal(t, model.ScanModePublic, plan.Mode)
+		assert.Contains(t, plan.NativeModules, "dns")
+		assert.Contains(t, plan.NativeModules, "crawl")
+		assert.Equal(t, []string{"subfinder"}, plan.Integrations)
+	})
+
+	t.Run("plan_quick_profile", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:  "example.com",
+			Profile: "quick",
+			Mode:    model.ScanModePublic,
+		}
+		plan, err := eng.Plan(req)
+		require.NoError(t, err)
+		assert.Equal(t, "quick", plan.Profile)
+		assert.Contains(t, plan.NativeModules, "dns")
+		assert.NotContains(t, plan.NativeModules, "crawl")
+		assert.Empty(t, plan.Integrations)
+	})
+
+	t.Run("plan_deep_profile_requires_owned", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:  "example.com",
+			Profile: "deep",
+			Mode:    model.ScanModePublic,
+		}
+		_, err := eng.Plan(req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires owned mode")
+	})
+
+	t.Run("plan_deep_profile_owned", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:  "example.com",
+			Profile: "deep",
+			Mode:    model.ScanModeOwned,
+		}
+		plan, err := eng.Plan(req)
+		require.NoError(t, err)
+		assert.Equal(t, "deep", plan.Profile)
+		assert.ElementsMatch(t, []string{"subfinder", "httpx", "katana", "nuclei"}, plan.Integrations)
+	})
+
+	t.Run("plan_with_disabled_module", func(t *testing.T) {
+		req := model.ScanRequest{
+			Target:         "example.com",
+			Profile:        "standard",
+			Mode:           model.ScanModePublic,
+			DisableModules: []string{"crawl"},
+		}
+		plan, err := eng.Plan(req)
+		require.NoError(t, err)
+		assert.NotContains(t, plan.NativeModules, "crawl")
+		assert.Contains(t, plan.NativeModules, "dns")
+	})
+}
