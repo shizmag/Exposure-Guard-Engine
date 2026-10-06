@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Build exposureguard engine binary
-FROM golang:alpine AS builder
+FROM golang:1.24-alpine3.21 AS builder
 
 WORKDIR /src
 RUN apk add --no-cache git make ca-certificates

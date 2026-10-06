@@ -1,0 +1,49 @@
+#!/usr/sbin/nft -f
+# ExposureGuard Reference Egress Firewall Configuration (nftables)
+#
+# IMPORTANT: This is a reference configuration. Review and adapt for your production environment!
+#
+# Threat Model:
+# Subprocesses invoked by ExposureGuard (e.g., httpx, katana, nuclei) perform raw network requests.
+# To prevent Server-Side Request Forgery (SSRF) to internal network segments or cloud instance
+# metadata services (AWS/GCP/Azure 169.254.169.254), egress traffic originating from the scanner
+# process/container MUST be restricted at the platform network layer.
+
+table inet exposureguard_egress {
+    chain output {
+        type filter hook output priority 0; policy accept;
+
+        # 1. Allow established and related traffic
+        ct state established,related accept
+
+        # 2. Allow local loopback for internal IPC/tests if authorized
+        # oifname "lo" accept
+
+        # 3. Block AWS/GCP/Azure Cloud Metadata service
+        ip daddr 169.254.169.254 drop
+        ip6 daddr fe80::/10 drop
+
+        # 4. Block RFC 1918 Private IPv4 Ranges
+        ip daddr 10.0.0.0/8 drop
+        ip daddr 172.16.0.0/12 drop
+        ip daddr 192.168.0.0/16 drop
+
+        # 5. Block RFC 6598 Shared CGNAT Address Space
+        ip daddr 100.64.0.0/10 drop
+
+        # 6. Block IPv4 Loopback and Link-Local
+        ip daddr 127.0.0.0/8 drop
+        ip daddr 169.254.0.0/16 drop
+
+        # 7. Block IPv6 Unique Local and Link-Local
+        ip6 daddr fc00::/7 drop
+        ip6 daddr ::1 drop
+
+        # 8. Allow outbound public DNS (UDP/TCP 53) and HTTP/HTTPS (TCP 80, 443)
+        udp dport 53 accept
+        tcp dport { 53, 80, 443 } accept
+
+        # 9. Default drop for other scanner ports (optional hardening)
+        # reject
+    }
+}
