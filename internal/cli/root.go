@@ -51,6 +51,8 @@ findings, and computes state changes across time without intrusive exploits.`,
 	cmd.AddCommand(newVersionCmd())
 	cmd.AddCommand(newScanCmd())
 	cmd.AddCommand(newDiffCmd())
+	cmd.AddCommand(newDoctorCmd())
+	cmd.AddCommand(newIntegrationsCmd())
 
 	return cmd
 }
