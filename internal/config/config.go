@@ -31,7 +31,7 @@ func Default() Config {
 		Format:    "human",
 		LogLevel:  "info",
 		NoColor:   false,
-		Profile:   "website",
+		Profile:   "standard",
 		Mode:      string(model.ScanModePublic),
 		UserAgent: "ExposureGuard/0.1.0 (+https://github.com/exposureguard/exposureguard)",
 		Modules:   []string{"dns", "tls", "http", "headers", "cookies", "crawl", "javascript", "sourcemaps"},

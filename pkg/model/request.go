@@ -28,7 +28,7 @@ func NewDefaultScanRequest(target string) ScanRequest {
 	return ScanRequest{
 		SchemaVersion: "1",
 		Target:        target,
-		Profile:       "website",
+		Profile:       "standard",
 		Mode:          ScanModePublic,
 		Limits:        DefaultLimits(),
 	}
