@@ -23,7 +23,7 @@ import (
 
 type enginePermissivePolicy struct{}
 
-func (enginePermissivePolicy) IsBlockedIP(_ netip.Addr) bool { return false }
+func (enginePermissivePolicy) IsBlockedIP(_ netip.Addr) bool   { return false }
 func (enginePermissivePolicy) IsBlockedHostname(_ string) bool { return false }
 
 func TestEngineEndToEnd(t *testing.T) {

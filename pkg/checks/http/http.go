@@ -70,15 +70,15 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// 1. HTTP Response Observation
 	httpObsData := map[string]any{
-		"requested_url":          target.URL,
-		"final_url":              finalURL,
-		"status_code":            resp.StatusCode,
-		"proto":                  resp.Proto,
-		"content_type":           resp.Header.Get("Content-Type"),
-		"content_length":         len(bodyBytes),
-		"body_fingerprint":       bodyFp,
-		"response_time_ms":       duration.Milliseconds(),
-		"redirected":             finalURL != target.URL,
+		"requested_url":    target.URL,
+		"final_url":        finalURL,
+		"status_code":      resp.StatusCode,
+		"proto":            resp.Proto,
+		"content_type":     resp.Header.Get("Content-Type"),
+		"content_length":   len(bodyBytes),
+		"body_fingerprint": bodyFp,
+		"response_time_ms": duration.Milliseconds(),
+		"redirected":       finalURL != target.URL,
 	}
 
 	httpObsID := fmt.Sprintf("%x", sha256.Sum256([]byte("http:root:"+target.URL)))[:16]
@@ -112,8 +112,8 @@ func (c *Check) analyzeHeaders(header http.Header, target model.Target, finalURL
 	var findings []model.Finding
 
 	normalized := map[string]string{
-		"content_security_policy":              header.Get("Content-Security-Policy"),
-		"content_security_policy_report_only":  header.Get("Content-Security-Policy-Report-Only"),
+		"content_security_policy":             header.Get("Content-Security-Policy"),
+		"content_security_policy_report_only": header.Get("Content-Security-Policy-Report-Only"),
 		"strict_transport_security":           header.Get("Strict-Transport-Security"),
 		"x_content_type_options":              header.Get("X-Content-Type-Options"),
 		"referrer_policy":                     header.Get("Referrer-Policy"),

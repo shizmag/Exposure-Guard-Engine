@@ -19,7 +19,7 @@ import (
 
 type jsPermissivePolicy struct{}
 
-func (jsPermissivePolicy) IsBlockedIP(_ netip.Addr) bool { return false }
+func (jsPermissivePolicy) IsBlockedIP(_ netip.Addr) bool   { return false }
 func (jsPermissivePolicy) IsBlockedHostname(_ string) bool { return false }
 
 func TestJavaScriptCheckWithSourceMap(t *testing.T) {

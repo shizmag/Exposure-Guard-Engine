@@ -19,7 +19,7 @@ import (
 
 type permissivePolicy struct{}
 
-func (permissivePolicy) IsBlockedIP(_ netip.Addr) bool { return false }
+func (permissivePolicy) IsBlockedIP(_ netip.Addr) bool   { return false }
 func (permissivePolicy) IsBlockedHostname(_ string) bool { return false }
 
 func TestHTTPCheck(t *testing.T) {

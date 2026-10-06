@@ -2,19 +2,19 @@ package model
 
 // Limits defines execution and resource bounds for a scan.
 type Limits struct {
-	TotalTimeoutSeconds       int     `json:"total_timeout_seconds" koanf:"total_timeout_seconds"`
-	RequestTimeoutSeconds     int     `json:"request_timeout_seconds" koanf:"request_timeout_seconds"`
-	DNSTimeoutSeconds         int     `json:"dns_timeout_seconds" koanf:"dns_timeout_seconds"`
-	TLSHandshakeTimeoutSeconds int    `json:"tls_handshake_timeout_seconds" koanf:"tls_handshake_timeout_seconds"`
-	MaxRedirects              int     `json:"max_redirects" koanf:"max_redirects"`
-	MaxDepth                  int     `json:"max_depth" koanf:"max_depth"`
-	MaxPages                  int     `json:"max_pages" koanf:"max_pages"`
-	MaxAssets                 int     `json:"max_assets" koanf:"max_assets"`
-	MaxResponseBytes          int64   `json:"max_response_bytes" koanf:"max_response_bytes"`
-	MaxTotalDownloadBytes     int64   `json:"max_total_download_bytes" koanf:"max_total_download_bytes"`
-	MaxConcurrency            int     `json:"max_concurrency" koanf:"max_concurrency"`
-	MaxPerHostConcurrency     int     `json:"max_per_host_concurrency" koanf:"max_per_host_concurrency"`
-	RequestsPerSecondPerHost  float64 `json:"requests_per_second_per_host" koanf:"requests_per_second_per_host"`
+	TotalTimeoutSeconds        int     `json:"total_timeout_seconds" koanf:"total_timeout_seconds"`
+	RequestTimeoutSeconds      int     `json:"request_timeout_seconds" koanf:"request_timeout_seconds"`
+	DNSTimeoutSeconds          int     `json:"dns_timeout_seconds" koanf:"dns_timeout_seconds"`
+	TLSHandshakeTimeoutSeconds int     `json:"tls_handshake_timeout_seconds" koanf:"tls_handshake_timeout_seconds"`
+	MaxRedirects               int     `json:"max_redirects" koanf:"max_redirects"`
+	MaxDepth                   int     `json:"max_depth" koanf:"max_depth"`
+	MaxPages                   int     `json:"max_pages" koanf:"max_pages"`
+	MaxAssets                  int     `json:"max_assets" koanf:"max_assets"`
+	MaxResponseBytes           int64   `json:"max_response_bytes" koanf:"max_response_bytes"`
+	MaxTotalDownloadBytes      int64   `json:"max_total_download_bytes" koanf:"max_total_download_bytes"`
+	MaxConcurrency             int     `json:"max_concurrency" koanf:"max_concurrency"`
+	MaxPerHostConcurrency      int     `json:"max_per_host_concurrency" koanf:"max_per_host_concurrency"`
+	RequestsPerSecondPerHost   float64 `json:"requests_per_second_per_host" koanf:"requests_per_second_per_host"`
 }
 
 // DefaultLimits provides production-safe defaults.

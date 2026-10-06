@@ -14,15 +14,15 @@ import (
 
 // Config holds runtime configuration options for the engine.
 type Config struct {
-	Format       string       `koanf:"format"`
-	LogLevel     string       `koanf:"log_level"`
-	NoColor      bool         `koanf:"no_color"`
-	Profile      string       `koanf:"profile"`
-	Mode         string       `koanf:"mode"`
-	UserAgent    string       `koanf:"user_agent"`
-	Modules      []string     `koanf:"modules"`
-	Disable      []string     `koanf:"disable_modules"`
-	Limits       model.Limits `koanf:"limits"`
+	Format    string       `koanf:"format"`
+	LogLevel  string       `koanf:"log_level"`
+	NoColor   bool         `koanf:"no_color"`
+	Profile   string       `koanf:"profile"`
+	Mode      string       `koanf:"mode"`
+	UserAgent string       `koanf:"user_agent"`
+	Modules   []string     `koanf:"modules"`
+	Disable   []string     `koanf:"disable_modules"`
+	Limits    model.Limits `koanf:"limits"`
 }
 
 // Default returns a Config initialized with safe production defaults.

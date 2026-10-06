@@ -20,14 +20,14 @@ func NewSafeTransportWithPolicy(resolver DNSResolver, policy NetworkPolicy, limi
 	dialer := NewSafeDialerWithPolicy(resolver, policy, time.Duration(limits.RequestTimeoutSeconds)*time.Second)
 
 	return &http.Transport{
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   time.Duration(limits.TLSHandshakeTimeoutSeconds) * time.Second,
-		ResponseHeaderTimeout: time.Duration(limits.RequestTimeoutSeconds) * time.Second,
-		IdleConnTimeout:       90 * time.Second,
-		MaxIdleConns:          limits.MaxConcurrency * 4,
-		MaxIdleConnsPerHost:   limits.MaxPerHostConcurrency,
+		DialContext:            dialer.DialContext,
+		TLSHandshakeTimeout:    time.Duration(limits.TLSHandshakeTimeoutSeconds) * time.Second,
+		ResponseHeaderTimeout:  time.Duration(limits.RequestTimeoutSeconds) * time.Second,
+		IdleConnTimeout:        90 * time.Second,
+		MaxIdleConns:           limits.MaxConcurrency * 4,
+		MaxIdleConnsPerHost:    limits.MaxPerHostConcurrency,
 		MaxResponseHeaderBytes: 256 * 1024,
-		DisableCompression:   false,
+		DisableCompression:     false,
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},

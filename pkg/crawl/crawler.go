@@ -22,12 +22,12 @@ import (
 
 // VisitedPage records metadata of a crawled HTTP response.
 type VisitedPage struct {
-	URL            string `json:"url"`
-	StatusCode     int    `json:"status_code"`
-	ContentType    string `json:"content_type"`
-	ContentLength  int    `json:"content_length"`
+	URL             string `json:"url"`
+	StatusCode      int    `json:"status_code"`
+	ContentType     string `json:"content_type"`
+	ContentLength   int    `json:"content_length"`
 	BodyFingerprint string `json:"body_fingerprint"`
-	Depth          int    `json:"depth"`
+	Depth           int    `json:"depth"`
 }
 
 // CrawlResult contains all assets and observations discovered by the crawler.
@@ -76,15 +76,15 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 	limiter := rate.NewLimiter(rate.Limit(rps), 2)
 
 	var (
-		mu              sync.Mutex
-		visitedKeys     = make(map[string]bool)
-		pathCounts      = make(map[string]int)
-		seenAssetIDs    = make(map[string]bool)
+		mu               sync.Mutex
+		visitedKeys      = make(map[string]bool)
+		pathCounts       = make(map[string]int)
+		seenAssetIDs     = make(map[string]bool)
 		discoveredAssets []model.Asset
-		visitedPages    []VisitedPage
-		observations    []model.Observation
-		totalDownloaded atomic.Int64
-		pagesCount      atomic.Int32
+		visitedPages     []VisitedPage
+		observations     []model.Observation
+		totalDownloaded  atomic.Int64
+		pagesCount       atomic.Int32
 	)
 
 	addAsset := func(a model.Asset) {

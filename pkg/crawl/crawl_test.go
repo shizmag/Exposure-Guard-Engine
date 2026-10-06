@@ -98,7 +98,7 @@ func TestExtractHTML(t *testing.T) {
 
 type crawlPermissivePolicy struct{}
 
-func (crawlPermissivePolicy) IsBlockedIP(_ netip.Addr) bool { return false }
+func (crawlPermissivePolicy) IsBlockedIP(_ netip.Addr) bool   { return false }
 func (crawlPermissivePolicy) IsBlockedHostname(_ string) bool { return false }
 
 func TestCrawlerEndToEnd(t *testing.T) {

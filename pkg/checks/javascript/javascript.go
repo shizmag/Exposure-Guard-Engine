@@ -36,8 +36,8 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 	limits := env.Limits
 	limits.Clamp()
 
-	maxJSBytes := int64(8 * 1024 * 1024)       // 8 MiB per JS file
-	maxMapBytes := int64(10 * 1024 * 1024)     // 10 MiB per Source Map
+	maxJSBytes := int64(8 * 1024 * 1024)   // 8 MiB per JS file
+	maxMapBytes := int64(10 * 1024 * 1024) // 10 MiB per Source Map
 	probedMaps := make(map[string]bool)
 
 	// Filter same-host JS assets to inspect

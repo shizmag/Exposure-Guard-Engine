@@ -19,7 +19,7 @@ import (
 
 type loopbackPermissivePolicy struct{}
 
-func (loopbackPermissivePolicy) IsBlockedIP(_ netip.Addr) bool { return false }
+func (loopbackPermissivePolicy) IsBlockedIP(_ netip.Addr) bool   { return false }
 func (loopbackPermissivePolicy) IsBlockedHostname(_ string) bool { return false }
 
 func TestTLSCheckWithTestServer(t *testing.T) {
