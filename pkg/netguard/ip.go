@@ -64,6 +64,40 @@ func (DefaultNetworkPolicy) IsBlockedHostname(host string) bool {
 	return IsBlockedHostname(host)
 }
 
+// AllowPrivateNetworkPolicy permits private and loopback destinations for controlled local testing,
+// while strictly maintaining blocks against cloud metadata and unspecified destinations.
+type AllowPrivateNetworkPolicy struct{}
+
+var cloudMetadataPrefix = netip.MustParsePrefix("169.254.0.0/16")
+
+// IsBlockedIP implements NetworkPolicy for AllowPrivateNetworkPolicy.
+func (AllowPrivateNetworkPolicy) IsBlockedIP(addr netip.Addr) bool {
+	if !addr.IsValid() {
+		return true
+	}
+	unmapped := addr.Unmap()
+	if unmapped.IsUnspecified() || unmapped.IsLinkLocalUnicast() || unmapped.IsLinkLocalMulticast() {
+		return true
+	}
+	return cloudMetadataPrefix.Contains(unmapped)
+}
+
+// IsBlockedHostname implements NetworkPolicy for AllowPrivateNetworkPolicy.
+func (AllowPrivateNetworkPolicy) IsBlockedHostname(hostname string) bool {
+	h := strings.ToLower(strings.TrimSpace(hostname))
+	h = strings.TrimSuffix(h, ".")
+	if h == "" {
+		return true
+	}
+	if h == "metadata.google.internal" || h == "metadata" || h == "instance-data" {
+		return true
+	}
+	if addr, err := netip.ParseAddr(h); err == nil {
+		return (AllowPrivateNetworkPolicy{}).IsBlockedIP(addr)
+	}
+	return false
+}
+
 // IsBlockedIP tests if addr is in a private, loopback, link-local, or reserved range.
 // It unmaps IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1) before evaluation.
 func IsBlockedIP(addr netip.Addr) bool {
