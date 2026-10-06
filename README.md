@@ -14,20 +14,39 @@ It answers one fundamental question:
 
 ## Quick Start
 
-### 1. Download or Build
-```bash
-# Clone and build
-git clone https://github.com/exposureguard/exposureguard.git
-cd exposureguard
-make build
+### 1. Installation
 
-# Verify installation
-./bin/exposureguard version
+#### Automated Installer (Local)
+Installs ExposureGuard engine and all pinned external discovery tools (`subfinder`, `httpx`, `katana`, `nuclei`):
+```bash
+./install.sh
+exposureguard doctor
+```
+
+#### Build from Source
+```bash
+make build
+./bin/exposureguard doctor
 ```
 
 ### 2. Run a Scan
 ```bash
-./bin/exposureguard scan https://example.com
+exposureguard scan https://example.com
+```
+
+### 3. External Toolchain & Integrations
+```bash
+# Verify health of engine and discovery integrations
+exposureguard doctor
+
+# List registered integrations
+exposureguard integrations list
+
+# Run with specific discovery tools
+exposureguard scan example.com --integrations subfinder,httpx
+
+# Deep scan for owned domains
+exposureguard scan example.com --mode owned --profile deep
 ```
 
 ### Example Output:

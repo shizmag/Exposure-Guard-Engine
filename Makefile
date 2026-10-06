@@ -1,4 +1,5 @@
-.PHONY: all build test test-race vet lint clean ci
+.PHONY: all build test test-race vet lint clean ci \
+	tools-install tools-check integrations-test docker-build docker-smoke install-local
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/exposureguard
@@ -31,6 +32,26 @@ lint: vet
 
 clean:
 	rm -rf $(BIN_DIR)
+
+tools-install:
+	./install.sh --with-tools
+
+tools-check:
+	./install.sh --check
+
+integrations-test:
+	go test -v ./integrations/...
+
+docker-build:
+	docker build -t exposureguard .
+
+docker-smoke:
+	docker run --rm exposureguard version
+	docker run --rm exposureguard integrations list
+	docker run --rm exposureguard doctor
+
+install-local:
+	./install.sh --engine-only
 
 ci: vet test test-race
 	@echo "All CI checks passed."
