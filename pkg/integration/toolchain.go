@@ -1,13 +1,11 @@
+//go:generate go run ./gen/sync_manifest.go
+
 package integration
 
 import (
-	_ "embed"
 	"encoding/json"
 	"sync"
 )
-
-//go:embed tools.lock.json
-var embeddedToolsLock []byte
 
 // ToolChecksumEntry holds archive filename and cryptographic hash.
 type ToolChecksumEntry struct {
@@ -36,6 +34,11 @@ var (
 	toolsLockManifest *ToolsLockManifest
 	toolsLockOnce     sync.Once
 )
+
+// EmbeddedToolsLockBytes returns the raw bytes of the canonical manifest embedded into the binary.
+func EmbeddedToolsLockBytes() []byte {
+	return embeddedToolsLock
+}
 
 // GetToolsLock returns the parsed embedded tools.lock.json manifest.
 func GetToolsLock() *ToolsLockManifest {

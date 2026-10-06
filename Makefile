@@ -1,5 +1,6 @@
 .PHONY: all build test test-race vet lint clean ci \
-	tools-install tools-check integrations-test docker-build docker-smoke install-local
+	tools-install tools-check integrations-test docker-build docker-smoke install-local \
+	generate manifest-check
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/exposureguard
@@ -53,5 +54,11 @@ docker-smoke:
 install-local:
 	./install.sh --engine-only
 
-ci: vet test test-race
+generate:
+	go run ./pkg/integration/gen/sync_manifest.go
+
+manifest-check: generate
+	@git diff --exit-code pkg/integration/tools_lock_gen.go || (echo "Error: Embedded tool manifest has drifted from canonical /tools.lock.json. Run 'make generate' and commit." && exit 1)
+
+ci: manifest-check vet test test-race
 	@echo "All CI checks passed."
