@@ -2,9 +2,21 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/exposureguard/exposureguard/internal/config"
+	"github.com/exposureguard/exposureguard/pkg/engine"
+	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/netguard"
+	"github.com/exposureguard/exposureguard/pkg/protocol"
+	"github.com/exposureguard/exposureguard/pkg/render/human"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +59,7 @@ func newScanCmd() *cobra.Command {
 				opts.target = args[0]
 			}
 			if opts.target == "" && opts.requestJSON == "" {
-				return fmt.Errorf("target argument or --request-json is required")
+				return &ExitCodeError{Code: 2, Err: fmt.Errorf("target argument or --request-json is required")}
 			}
 			return runScan(cmd.Context(), opts)
 		},
@@ -85,8 +97,153 @@ func newScanCmd() *cobra.Command {
 	return cmd
 }
 
-func runScan(_ context.Context, opts *scanOptions) error {
-	// Stub until engine pipeline is wired
-	fmt.Printf("Scanning target: %s (mode: %s)\n", opts.target, opts.mode)
-	return nil
+func runScan(ctx context.Context, opts *scanOptions) error {
+	// Signal handling for graceful termination
+	sigCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	cfg, _ := config.Load(cfgFile)
+
+	var req model.ScanRequest
+	if opts.requestJSON != "" {
+		var reqBytes []byte
+		var err error
+		if opts.requestJSON == "-" {
+			reqBytes, err = io.ReadAll(os.Stdin)
+		} else {
+			reqBytes, err = os.ReadFile(opts.requestJSON)
+		}
+		if err != nil {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("reading request JSON failed: %w", err)}
+		}
+		if err := json.Unmarshal(reqBytes, &req); err != nil {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("unmarshaling request JSON failed: %w", err)}
+		}
+	} else {
+		req = model.NewDefaultScanRequest(opts.target)
+		req.Profile = opts.profile
+		req.Mode = model.ScanMode(opts.mode)
+		req.Modules = opts.modules
+		req.DisableModules = opts.disableModules
+		req.Limits = cfg.Limits
+
+		// Override with explicit flags if set
+		if opts.timeout > 0 {
+			req.Limits.TotalTimeoutSeconds = int(opts.timeout.Seconds())
+		}
+		if opts.requestTimeout > 0 {
+			req.Limits.RequestTimeoutSeconds = int(opts.requestTimeout.Seconds())
+		}
+		if opts.dnsTimeout > 0 {
+			req.Limits.DNSTimeoutSeconds = int(opts.dnsTimeout.Seconds())
+		}
+		if opts.concurrency > 0 {
+			req.Limits.MaxConcurrency = opts.concurrency
+		}
+		if opts.perHostConc > 0 {
+			req.Limits.MaxPerHostConcurrency = opts.perHostConc
+		}
+		if opts.rateLimit > 0 {
+			req.Limits.RequestsPerSecondPerHost = opts.rateLimit
+		}
+		if opts.maxDepth >= 0 {
+			req.Limits.MaxDepth = opts.maxDepth
+		}
+		if opts.maxPages > 0 {
+			req.Limits.MaxPages = opts.maxPages
+		}
+		if opts.maxAssets > 0 {
+			req.Limits.MaxAssets = opts.maxAssets
+		}
+		if opts.maxResponseBytes > 0 {
+			req.Limits.MaxResponseBytes = opts.maxResponseBytes
+		}
+		if opts.maxTotalBytes > 0 {
+			req.Limits.MaxTotalDownloadBytes = opts.maxTotalBytes
+		}
+		if opts.maxRedirects > 0 {
+			req.Limits.MaxRedirects = opts.maxRedirects
+		}
+	}
+
+	req.Limits.Clamp()
+
+	// Apply timeout to context
+	scanTimeout := time.Duration(req.Limits.TotalTimeoutSeconds) * time.Second
+	timeoutCtx, cancel := context.WithTimeout(sigCtx, scanTimeout)
+	defer cancel()
+
+	// Setup previous snapshot if provided
+	var prevSnap *model.Snapshot
+	if opts.previousSnapshot != "" {
+		pBytes, err := os.ReadFile(opts.previousSnapshot)
+		if err != nil {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("reading previous snapshot failed: %w", err)}
+		}
+		var ps model.Snapshot
+		if err := json.Unmarshal(pBytes, &ps); err != nil {
+			return &ExitCodeError{Code: 2, Err: fmt.Errorf("parsing previous snapshot failed: %w", err)}
+		}
+		prevSnap = &ps
+	}
+
+	// Setup output writer
+	outWriter := os.Stdout
+	if opts.output != "" {
+		f, err := os.Create(opts.output)
+		if err != nil {
+			return &ExitCodeError{Code: 1, Err: fmt.Errorf("creating output file failed: %w", err)}
+		}
+		defer f.Close()
+		outWriter = f
+	}
+
+	format := opts.format
+	if format == "" {
+		format = cfg.Format
+	}
+
+	var encoder *protocol.Encoder
+	if format == "jsonl" {
+		encoder = protocol.NewEncoder(outWriter, req.ScanID)
+	}
+
+	eng := engine.NewEngine(nil, encoder)
+	result, err := eng.Run(timeoutCtx, engine.Options{
+		Request:          req,
+		PreviousSnapshot: prevSnap,
+	})
+
+	if err != nil {
+		if errors.Is(err, netguard.ErrBlockedIP) ||
+			errors.Is(err, netguard.ErrBlockedHostname) ||
+			errors.Is(err, netguard.ErrBlockedScheme) {
+			return &ExitCodeError{Code: 3, Err: err}
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return &ExitCodeError{Code: 4, Err: err}
+		}
+		return &ExitCodeError{Code: 1, Err: err}
+	}
+
+	// Persist snapshot if requested
+	if opts.snapshotOut != "" {
+		snapBytes, err := json.MarshalIndent(result.Snapshot, "", "  ")
+		if err == nil {
+			_ = os.WriteFile(opts.snapshotOut, snapBytes, 0o600)
+		}
+	}
+
+	// Final render
+	switch format {
+	case "jsonl":
+		// Already streamed in real-time
+		return nil
+	case "json":
+		enc := json.NewEncoder(outWriter)
+		enc.SetIndent("", "  ")
+		return enc.Encode(result)
+	default: // human
+		return human.Render(outWriter, result, human.Options{NoColor: noColor})
+	}
 }

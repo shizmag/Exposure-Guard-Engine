@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -12,6 +13,23 @@ var (
 	cfgFile string
 	noColor bool
 )
+
+// ExitCodeError wraps an error with an explicit process exit code.
+type ExitCodeError struct {
+	Code int
+	Err  error
+}
+
+func (e *ExitCodeError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return fmt.Sprintf("exit code %d", e.Code)
+}
+
+func (e *ExitCodeError) Unwrap() error {
+	return e.Err
+}
 
 // NewRootCmd constructs the base cobra command.
 func NewRootCmd() *cobra.Command {
@@ -41,6 +59,13 @@ findings, and computes state changes across time without intrusive exploits.`,
 func Execute() {
 	cmd := NewRootCmd()
 	if err := cmd.Execute(); err != nil {
+		var exitErr *ExitCodeError
+		if errors.As(err, &exitErr) {
+			if exitErr.Err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", exitErr.Err)
+			}
+			os.Exit(exitErr.Code)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
