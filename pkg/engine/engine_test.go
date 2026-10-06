@@ -2,8 +2,10 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,8 @@ import (
 	"time"
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
+	"github.com/exposureguard/exposureguard/pkg/integration"
+	"github.com/exposureguard/exposureguard/pkg/integration/integrationtest"
 	"github.com/exposureguard/exposureguard/pkg/model"
 	"github.com/exposureguard/exposureguard/pkg/netguard"
 	"github.com/exposureguard/exposureguard/pkg/protocol"
@@ -111,4 +115,144 @@ const api = "/api/v1/auth";
 	assert.Equal(t, protocol.EventScanStarted, firstEvent.Type)
 	assert.Equal(t, protocol.EventScanCompleted, lastEvent.Type)
 	assert.Equal(t, int64(1), firstEvent.Seq)
+}
+
+type mockEngineAdapter struct {
+	id   string
+	meta integration.Metadata
+}
+
+func (m *mockEngineAdapter) ID() string {
+	return m.id
+}
+
+func (m *mockEngineAdapter) Metadata() integration.Metadata {
+	return m.meta
+}
+
+func (m *mockEngineAdapter) Detect(ctx context.Context, runner integration.Runner) (integration.Installation, error) {
+	return integration.Installation{
+		Installed:  true,
+		Path:       "/bin/mock",
+		Version:    "1.0.0",
+		Compatible: true,
+	}, nil
+}
+
+func (m *mockEngineAdapter) Plan(ctx context.Context, req integration.Request) (integration.ExecutionPlan, error) {
+	return integration.ExecutionPlan{
+		Command: integration.CommandSpec{
+			Binary:  "echo",
+			Args:    []string{"mock output"},
+			Timeout: 2 * time.Second,
+		},
+		OutputSource: integration.OutputSourceStdout,
+	}, nil
+}
+
+func (m *mockEngineAdapter) Parse(ctx context.Context, input io.Reader, emit integration.Emitter) error {
+	emit.EmitAsset(model.Asset{
+		Kind:   model.AssetKindHostname,
+		Value:  "discovered.example.com",
+		Source: "mock",
+	})
+	emit.EmitObservation(model.Observation{
+		Kind:    "mock.discovery",
+		Subject: "discovered.example.com",
+		Data:    map[string]any{"mock": true},
+	})
+	return nil
+}
+
+func TestEngineWithMockIntegration(t *testing.T) {
+	reg := integration.NewRegistry()
+	mockA := &mockEngineAdapter{
+		id: "subfinder",
+		meta: integration.Metadata{
+			ID:          "subfinder",
+			Binary:      "echo",
+			DisplayName: "Mock Subfinder",
+			Capabilities: []integration.Capability{
+				integration.CapabilityAssetDiscovery,
+			},
+			SupportedModes: []model.ScanMode{model.ScanModePublic, model.ScanModeOwned},
+			RiskClass:      integration.RiskClassPassive,
+		},
+	}
+	require.NoError(t, reg.Register(mockA))
+
+	runner := &integrationtest.MockRunner{
+		RunFunc: func(ctx context.Context, plan integration.ExecutionPlan) (*integration.RunResult, error) {
+			return &integration.RunResult{
+				ExitCode: 0,
+				Stdout:   io.NopCloser(strings.NewReader("mock line\n")),
+				Duration: 5 * time.Millisecond,
+			}, nil
+		},
+	}
+
+	limits := model.DefaultLimits()
+	limits.TotalTimeoutSeconds = 5
+	resolver := netguard.NewSafeResolverWithPolicy(nil, enginePermissivePolicy{})
+	transport := netguard.NewSafeTransportWithPolicy(resolver, enginePermissivePolicy{}, limits)
+	client := &http.Client{Transport: transport, Timeout: 1 * time.Second}
+
+	var jsonlBuf bytes.Buffer
+	enc := protocol.NewEncoder(&jsonlBuf, "test-scan-mock")
+	env := checks.NewEnvironmentWithPolicy(client, resolver, enginePermissivePolicy{}, limits, enc)
+	eng := NewEngineWithIntegrations(env, enc, reg, runner)
+
+	req := model.ScanRequest{
+		SchemaVersion: "1",
+		ScanID:        "test-scan-mock",
+		Target:        "https://example.com",
+		Profile:       "standard",
+		Mode:          model.ScanModePublic,
+		Limits:        limits,
+		Integrations:  "subfinder",
+	}
+
+	res, err := eng.Run(t.Context(), Options{Request: req})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+
+	assert.Contains(t, res.Summary.IntegrationsRan, "subfinder")
+
+	// Discovered asset and observation from integration must be present in snapshot
+	var foundAsset bool
+	for _, a := range res.Snapshot.Assets {
+		if a.Value == "discovered.example.com" {
+			foundAsset = true
+			break
+		}
+	}
+	assert.True(t, foundAsset, "expected mock discovered asset in snapshot")
+}
+
+func TestEngineRequireIntegrationMissing(t *testing.T) {
+	reg := integration.NewRegistry()
+	runner := &integrationtest.MockRunner{}
+
+	limits := model.DefaultLimits()
+	limits.TotalTimeoutSeconds = 5
+	resolver := netguard.NewSafeResolverWithPolicy(nil, enginePermissivePolicy{})
+	transport := netguard.NewSafeTransportWithPolicy(resolver, enginePermissivePolicy{}, limits)
+	client := &http.Client{Transport: transport, Timeout: 1 * time.Second}
+
+	env := checks.NewEnvironmentWithPolicy(client, resolver, enginePermissivePolicy{}, limits, nil)
+	eng := NewEngineWithIntegrations(env, nil, reg, runner)
+
+	req := model.ScanRequest{
+		SchemaVersion:       "1",
+		ScanID:              "test-scan-missing",
+		Target:              "https://example.com",
+		Profile:             "standard",
+		Mode:                model.ScanModePublic,
+		Limits:              limits,
+		RequireIntegrations: []string{"nonexistent-tool"},
+	}
+
+	_, err := eng.Run(t.Context(), Options{Request: req})
+	require.Error(t, err, "expected error when required integration is missing")
+	assert.Contains(t, err.Error(), "required integration \"nonexistent-tool\" is not registered")
 }

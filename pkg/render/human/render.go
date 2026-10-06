@@ -109,6 +109,12 @@ func Render(w io.Writer, res *model.ScanResult, opts Options) error {
 		res.Snapshot.Summary.MediumFindings,
 		res.Snapshot.Summary.LowFindings,
 	))
+	if len(res.Summary.IntegrationsRan) > 0 {
+		fmt.Fprintf(&sb, "  Integrations: %s\n", strings.Join(res.Summary.IntegrationsRan, ", "))
+	}
+	if len(res.Summary.IntegrationsSkipped) > 0 {
+		fmt.Fprintf(&sb, "  Skipped: %s\n", strings.Join(res.Summary.IntegrationsSkipped, ", "))
+	}
 	if len(res.Changes) > 0 {
 		sb.WriteString(fmt.Sprintf("  %d state change(s) detected compared to previous snapshot\n", len(res.Changes)))
 	}

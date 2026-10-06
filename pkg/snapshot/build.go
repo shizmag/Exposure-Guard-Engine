@@ -1,38 +1,76 @@
 package snapshot
 
 import (
+	"strings"
 	"time"
 
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
 	"github.com/exposureguard/exposureguard/pkg/model"
 )
 
-// Build constructs a deterministic, normalized Snapshot.
+// Build constructs a deterministic, normalized Snapshot with deduplication.
 func Build(target model.Target, assets []model.Asset, obs []model.Observation, findings []model.Finding, capturedAt time.Time) model.Snapshot {
-	// Normalize and assign stable IDs
-	normAssets := make([]model.Asset, len(assets))
-	copy(normAssets, assets)
-	for i := range normAssets {
-		if normAssets[i].ID == "" {
-			normAssets[i].ID = ComputeAssetID(normAssets[i].Kind, normAssets[i].Value)
+	// Normalize and assign stable IDs with deduplication
+	seenAssets := make(map[string]int)
+	var normAssets []model.Asset
+	for _, a := range assets {
+		id := a.ID
+		if id == "" {
+			id = ComputeAssetID(a.Kind, a.Value)
+			a.ID = id
+		}
+		if idx, exists := seenAssets[id]; exists {
+			existing := &normAssets[idx]
+			if a.Source != "" && !strings.Contains(existing.Source, a.Source) {
+				if existing.Source == "" {
+					existing.Source = a.Source
+				} else {
+					existing.Source = existing.Source + "," + a.Source
+				}
+			}
+			if a.Attributes != nil {
+				if existing.Attributes == nil {
+					existing.Attributes = make(map[string]string)
+				}
+				for k, v := range a.Attributes {
+					if existing.Attributes[k] == "" {
+						existing.Attributes[k] = v
+					}
+				}
+			}
+		} else {
+			seenAssets[id] = len(normAssets)
+			normAssets = append(normAssets, a)
 		}
 	}
 	SortAssets(normAssets)
 
-	normObs := make([]model.Observation, len(obs))
-	copy(normObs, obs)
-	for i := range normObs {
-		if normObs[i].ID == "" {
-			normObs[i].ID = ComputeObservationID(normObs[i].Kind, normObs[i].Subject, normObs[i].Data)
+	seenObs := make(map[string]int)
+	var normObs []model.Observation
+	for _, o := range obs {
+		id := o.ID
+		if id == "" {
+			id = ComputeObservationID(o.Kind, o.Subject, o.Data)
+			o.ID = id
+		}
+		if _, exists := seenObs[id]; !exists {
+			seenObs[id] = len(normObs)
+			normObs = append(normObs, o)
 		}
 	}
 	SortObservations(normObs)
 
-	normFindings := make([]model.Finding, len(findings))
-	copy(normFindings, findings)
-	for i := range normFindings {
-		if normFindings[i].ID == "" {
-			normFindings[i].ID = ComputeFindingID(normFindings[i].RuleID, normFindings[i].Asset, normFindings[i].Evidence.Fingerprint)
+	seenFindings := make(map[string]int)
+	var normFindings []model.Finding
+	for _, f := range findings {
+		id := f.ID
+		if id == "" {
+			id = ComputeFindingID(f.RuleID, f.Asset, f.Evidence.Fingerprint)
+			f.ID = id
+		}
+		if _, exists := seenFindings[id]; !exists {
+			seenFindings[id] = len(normFindings)
+			normFindings = append(normFindings, f)
 		}
 	}
 	SortFindings(normFindings)

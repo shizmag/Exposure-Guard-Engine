@@ -15,9 +15,12 @@ type ScanRequest struct {
 	Target         string   `json:"target"`
 	Profile        string   `json:"profile,omitempty"`
 	Mode           ScanMode `json:"mode,omitempty"`
-	Modules        []string `json:"modules,omitempty"`
-	DisableModules []string `json:"disable_modules,omitempty"`
-	Limits         Limits   `json:"limits"`
+	Modules             []string `json:"modules,omitempty"`
+	DisableModules      []string `json:"disable_modules,omitempty"`
+	Integrations        string   `json:"integrations,omitempty"`
+	DisableIntegrations []string `json:"disable_integrations,omitempty"`
+	RequireIntegrations []string `json:"require_integrations,omitempty"`
+	Limits              Limits   `json:"limits"`
 }
 
 // NewDefaultScanRequest creates a valid request with safe defaults.

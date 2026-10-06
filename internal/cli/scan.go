@@ -27,8 +27,11 @@ type scanOptions struct {
 	profile          string
 	mode             string
 	modules          []string
-	disableModules   []string
-	timeout          time.Duration
+	disableModules      []string
+	integrations        string
+	disableIntegrations []string
+	requireIntegrations []string
+	timeout             time.Duration
 	requestTimeout   time.Duration
 	dnsTimeout       time.Duration
 	concurrency      int
@@ -72,6 +75,9 @@ func newScanCmd() *cobra.Command {
 	flags.StringVar(&opts.mode, "mode", "public", "scan mode: public or owned")
 	flags.StringSliceVar(&opts.modules, "modules", nil, "comma-separated modules to run")
 	flags.StringSliceVar(&opts.disableModules, "disable-module", nil, "modules to disable")
+	flags.StringVar(&opts.integrations, "integrations", "auto", "external integrations: auto, none, or comma-separated list")
+	flags.StringSliceVar(&opts.disableIntegrations, "disable-integration", nil, "external integration to disable")
+	flags.StringSliceVar(&opts.requireIntegrations, "require-integration", nil, "require specific integration to be available")
 
 	flags.DurationVar(&opts.timeout, "timeout", 120*time.Second, "total scan timeout")
 	flags.DurationVar(&opts.requestTimeout, "request-timeout", 10*time.Second, "per-request timeout")
@@ -125,6 +131,9 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		req.Mode = model.ScanMode(opts.mode)
 		req.Modules = opts.modules
 		req.DisableModules = opts.disableModules
+		req.Integrations = opts.integrations
+		req.DisableIntegrations = opts.disableIntegrations
+		req.RequireIntegrations = opts.requireIntegrations
 		req.Limits = cfg.Limits
 
 		// Override with explicit flags if set

@@ -22,8 +22,12 @@ type ScanStats struct {
 	SourceMapsDetected int                      `json:"source_maps_detected"`
 	TotalObservations  int                      `json:"total_observations"`
 	TotalFindings      int                      `json:"total_findings"`
-	TotalChanges       int                      `json:"total_changes"`
-	DurationPerStage   map[string]time.Duration `json:"duration_per_stage,omitempty"`
+	TotalChanges        int                      `json:"total_changes"`
+	IntegrationsRan     []string                 `json:"integrations_ran,omitempty"`
+	IntegrationsSkipped []string                 `json:"integrations_skipped,omitempty"`
+	IntegrationsFailed  []string                 `json:"integrations_failed,omitempty"`
+	IntegrationMetrics  map[string]any           `json:"integration_metrics,omitempty"`
+	DurationPerStage    map[string]time.Duration `json:"duration_per_stage,omitempty"`
 	TotalDuration      time.Duration            `json:"total_duration"`
 }
 
