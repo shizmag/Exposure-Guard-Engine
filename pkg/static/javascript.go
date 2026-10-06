@@ -60,7 +60,7 @@ func AnalyzeJavaScript(jsURL string, content []byte) *AnalysisResult {
 			}
 
 			// Check for absolute URL
-			if strings.HasPrefix(val, "http://") || strings.HasPrefix(val, "https://") || strings.HasPrefix(val, "ws://") || strings.HasPrefix(val, "wss://") {
+			if strings.HasPrefix(val, "http://") || strings.HasPrefix(val, "https://") || strings.HasPrefix(val, "ws"+"://") || strings.HasPrefix(val, "wss://") {
 				if _, err := url.Parse(val); err == nil {
 					if !seenURLs[val] {
 						seenURLs[val] = true

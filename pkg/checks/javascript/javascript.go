@@ -80,6 +80,10 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 			result.Assets = append(result.Assets, ep)
 		}
 
+		// Detect credential exposures in JavaScript bundle
+		credFindings := static.DetectCredentials(jsAsset.Value, bodyBytes)
+		result.Findings = append(result.Findings, credFindings...)
+
 		// 2. Resolve source map candidates (explicit and conservative fallback)
 		var candidateMapURLs []string
 
