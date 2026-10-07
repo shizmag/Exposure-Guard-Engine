@@ -90,7 +90,7 @@ func DetectCredentials(jsURL string, content []byte) []model.Finding {
 			masked := redact.MaskSecret(rawSecret)
 			line := bytes.Count(content[:start], []byte("\n")) + 1
 
-			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("secret:"+rule.Provider+":"+jsURL+":"+fp)))[:16]
+			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("secret:"+rule.Provider+":"+jsURL+":"+fp)))
 
 			findings = append(findings, model.Finding{
 				ID:          findingID,

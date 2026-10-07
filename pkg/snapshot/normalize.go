@@ -18,13 +18,13 @@ var volatileKeys = map[string]bool{
 	"captured_at":      true,
 }
 
-// ComputeAssetID generates a deterministic 16-hex identity for an asset.
+// ComputeAssetID generates a deterministic full SHA-256 identity for an asset.
 func ComputeAssetID(kind model.AssetKind, value string) string {
 	h := sha256.Sum256([]byte(string(kind) + ":" + strings.TrimSpace(value)))
-	return hex.EncodeToString(h[:])[:16]
+	return hex.EncodeToString(h[:])
 }
 
-// ComputeObservationID generates a deterministic 16-hex identity for an observation.
+// ComputeObservationID generates a deterministic full SHA-256 identity for an observation.
 func ComputeObservationID(kind, subject string, data map[string]any) string {
 	stableData := make(map[string]any)
 	for k, v := range data {
@@ -34,13 +34,13 @@ func ComputeObservationID(kind, subject string, data map[string]any) string {
 	}
 	encoded, _ := json.Marshal(stableData)
 	h := sha256.Sum256([]byte(kind + ":" + subject + ":" + string(encoded)))
-	return hex.EncodeToString(h[:])[:16]
+	return hex.EncodeToString(h[:])
 }
 
-// ComputeFindingID generates a deterministic 16-hex identity for a finding.
+// ComputeFindingID generates a deterministic full SHA-256 identity for a finding.
 func ComputeFindingID(ruleID, asset, fingerprint string) string {
 	h := sha256.Sum256([]byte(ruleID + ":" + asset + ":" + fingerprint))
-	return hex.EncodeToString(h[:])[:16]
+	return hex.EncodeToString(h[:])
 }
 
 // SortAssets sorts an asset slice deterministically.

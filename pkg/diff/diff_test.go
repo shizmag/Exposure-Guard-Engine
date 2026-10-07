@@ -205,7 +205,7 @@ func TestDiffSemanticTransitions(t *testing.T) {
 	for _, ch := range changes {
 		types[ch.Type] = ch
 		assert.NotEmpty(t, ch.ID, "change must have a non-empty deterministic ID")
-		assert.Len(t, ch.ID, 16, "change ID must be 16-hex characters")
+		assert.Len(t, ch.ID, 64, "change ID must be 64-hex SHA-256 characters")
 	}
 
 	assert.Contains(t, types, "asset.removed")

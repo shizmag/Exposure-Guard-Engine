@@ -75,7 +75,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 
 		// Record endpoint candidates as discovered assets
 		for _, ep := range analysis.EndpointCandidates {
-			epID := fmt.Sprintf("%x", sha256.Sum256([]byte("endpoint:"+ep.Value+":"+jsAsset.Value)))[:16]
+			epID := fmt.Sprintf("%x", sha256.Sum256([]byte("endpoint:"+ep.Value+":"+jsAsset.Value)))
 			ep.ID = epID
 			result.Assets = append(result.Assets, ep)
 		}
@@ -131,7 +131,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 			}
 
 			// Valid real source map detected!
-			mapID := fmt.Sprintf("%x", sha256.Sum256([]byte("sourcemap:"+mapURL)))[:16]
+			mapID := fmt.Sprintf("%x", sha256.Sum256([]byte("sourcemap:"+mapURL)))
 			result.Assets = append(result.Assets, model.Asset{
 				ID:            mapID,
 				Kind:          model.AssetKindSourceMap,
@@ -145,7 +145,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 				},
 			})
 
-			obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("obs:sourcemap:"+mapURL)))[:16]
+			obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("obs:sourcemap:"+mapURL)))
 			result.Observations = append(result.Observations, model.Observation{
 				ID:      obsID,
 				Kind:    "source_map_detected",
@@ -161,7 +161,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 				},
 			})
 
-			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:frontend.public_source_map:"+mapURL)))[:16]
+			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:frontend.public_source_map:"+mapURL)))
 			result.Findings = append(result.Findings, model.Finding{
 				ID:          findingID,
 				CheckID:     c.ID(),

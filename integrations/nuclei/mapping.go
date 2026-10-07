@@ -117,7 +117,7 @@ func MapRecord(rec Record, emit integration.Emitter) {
 		}
 
 		h := sha256.Sum256([]byte(rec.TemplateID + ":" + subject))
-		fp := hex.EncodeToString(h[:])[:16]
+		fp := hex.EncodeToString(h[:])
 
 		var maskedPreview string
 		if len(rec.ExtractedResults) > 0 {

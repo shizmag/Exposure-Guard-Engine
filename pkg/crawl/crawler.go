@@ -185,7 +185,7 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				mu.Lock()
 				visitedPages = append(visitedPages, page)
 
-				obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("crawl:page:"+item.u.String())))[:16]
+				obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("crawl:page:"+item.u.String())))
 				observations = append(observations, model.Observation{
 					ID:      obsID,
 					Kind:    "crawled_page",
@@ -217,7 +217,7 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				// Process JS assets
 				for _, jsURL := range extraction.JavaScriptURLs {
 					jsStr := jsURL.String()
-					jsID := fmt.Sprintf("%x", sha256.Sum256([]byte("javascript:"+jsStr)))[:16]
+					jsID := fmt.Sprintf("%x", sha256.Sum256([]byte("javascript:"+jsStr)))
 					addAsset(model.Asset{
 						ID:            jsID,
 						Kind:          model.AssetKindJavaScript,
@@ -230,7 +230,7 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 
 				// Process External References
 				for _, extRef := range extraction.ExternalReferences {
-					extID := fmt.Sprintf("%x", sha256.Sum256([]byte("external:"+extRef)))[:16]
+					extID := fmt.Sprintf("%x", sha256.Sum256([]byte("external:"+extRef)))
 					addAsset(model.Asset{
 						ID:            extID,
 						Kind:          model.AssetKindExternal,

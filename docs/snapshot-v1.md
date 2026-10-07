@@ -49,16 +49,16 @@ A complete Snapshot consists of:
 ## 3. Stable Identity Computation
 
 ### Assets
-- **Asset ID**: First 16 hex characters of `SHA-256(Kind + ":" + Value)`
+- **Asset ID**: Full 64 hex characters of `SHA-256(Kind + ":" + Value)`
 - **Kinds**: `hostname`, `url`, `javascript`, `source_map`, `endpoint_candidate`, `external_reference`.
 - **Deduplication**: Assets with identical IDs are merged. Multiple sources are concatenated deterministically.
 
 ### Observations
-- **Observation ID**: First 16 hex characters of `SHA-256(Kind + ":" + Subject + ":" + StableDataJSON)`
+- **Observation ID**: Full 64 hex characters of `SHA-256(Kind + ":" + Subject + ":" + StableDataJSON)`
 - **Volatile Field Suppression**: Keys such as `response_time_ms`, `ttl`, `timestamp`, and `captured_at` are stripped before hashing.
 
 ### Findings
-- **Finding ID**: First 16 hex characters of `SHA-256(RuleID + ":" + Asset + ":" + Fingerprint)`
+- **Finding ID**: Full 64 hex characters of `SHA-256(RuleID + ":" + Asset + ":" + Fingerprint)`
 - **Stability Guarantee**: If evidence varies slightly in line number or timestamps, the structural `Fingerprint` preserves issue identity across repeated runs.
 
 ---
@@ -97,7 +97,7 @@ exposureguard snapshot hash snapshot.json
 When executing `exposureguard diff <old.json> <new.json>`:
 1. **Zero-Change Guarantee**: Identical semantic states produce zero changes, even if item orderings or timestamps in the files differ.
 2. **Suppressed Volatile Fields**: Dynamic HTTP headers (`Date`, `ETag`, `Set-Cookie` values, `X-Request-Id`, `CF-Ray`) and DNS TTL fluctuations never generate false-positive changes.
-3. **Change Identity**: Every `Change` struct possesses a deterministic `ID` computed as `SHA-256(Type + ":" + Subject)[:16]`.
+3. **Change Identity**: Every `Change` struct possesses a deterministic `ID` computed as full 64 hex characters of `SHA-256(Type + ":" + Subject)`.
 
 ---
 

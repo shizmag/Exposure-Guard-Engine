@@ -120,7 +120,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// Build Observations
 	for _, rec := range records {
-		obsID := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("dns:%s:%s:%s", rec.Type, rec.Name, rec.Value))))[:16]
+		obsID := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("dns:%s:%s:%s", rec.Type, rec.Name, rec.Value))))
 		result.Observations = append(result.Observations, model.Observation{
 			ID:      obsID,
 			Kind:    "dns_record",
@@ -136,7 +136,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// Build Assets for discovered hosts
 	for h := range discoveredHosts {
-		assetID := fmt.Sprintf("%x", sha256.Sum256([]byte("hostname:"+h)))[:16]
+		assetID := fmt.Sprintf("%x", sha256.Sum256([]byte("hostname:"+h)))
 		result.Assets = append(result.Assets, model.Asset{
 			ID:            assetID,
 			Kind:          model.AssetKindHostname,

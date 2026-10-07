@@ -299,5 +299,5 @@ func diffObservations(oldObs, newObs []model.Observation) []model.Change {
 
 func computeChangeID(changeType, subject string) string {
 	h := sha256.Sum256([]byte(changeType + ":" + subject))
-	return hex.EncodeToString(h[:])[:16]
+	return hex.EncodeToString(h[:])
 }
