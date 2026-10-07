@@ -14,6 +14,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 )
 
 // Check inspects TLS configuration and certificates.
@@ -113,7 +114,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 		obsData["verification_error"] = verifyError
 	}
 
-	obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("tls:"+target.Host+":"+fingerprint)))
+	obsID := snapshot.StableID("observation", "tls_certificate", target.Host, fingerprint)
 	result.Observations = append(result.Observations, model.Observation{
 		ID:      obsID,
 		Kind:    "tls_certificate",
@@ -127,7 +128,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// 1. Expired certificate
 	if now.After(leaf.NotAfter) {
-		findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:tls.expired:"+target.Host)))
+		findingID := snapshot.ComputeFindingID("tls.expired", target.Host, fingerprint)
 		result.Findings = append(result.Findings, model.Finding{
 			ID:          findingID,
 			CheckID:     c.ID(),
@@ -146,7 +147,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 			Remediation: "Renew and deploy a valid SSL/TLS certificate.",
 		})
 	} else if daysUntil <= 7 {
-		findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:tls.expires_soon:"+target.Host)))
+		findingID := snapshot.ComputeFindingID("tls.expires_soon", target.Host, fingerprint)
 		result.Findings = append(result.Findings, model.Finding{
 			ID:          findingID,
 			CheckID:     c.ID(),
@@ -165,7 +166,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 			Remediation: "Renew SSL/TLS certificate immediately.",
 		})
 	} else if daysUntil <= 14 {
-		findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:tls.expires_soon:"+target.Host)))
+		findingID := snapshot.ComputeFindingID("tls.expires_soon", target.Host, fingerprint)
 		result.Findings = append(result.Findings, model.Finding{
 			ID:          findingID,
 			CheckID:     c.ID(),
@@ -184,7 +185,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 			Remediation: "Schedule SSL/TLS certificate renewal.",
 		})
 	} else if daysUntil <= 30 {
-		findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:tls.expires_soon:"+target.Host)))
+		findingID := snapshot.ComputeFindingID("tls.expires_soon", target.Host, fingerprint)
 		result.Findings = append(result.Findings, model.Finding{
 			ID:          findingID,
 			CheckID:     c.ID(),
@@ -206,7 +207,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// Hostname mismatch finding
 	if verifyError != "" && strings.Contains(strings.ToLower(verifyError), "certificate is valid for") {
-		findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:tls.hostname_mismatch:"+target.Host)))
+		findingID := snapshot.ComputeFindingID("tls.hostname_mismatch", target.Host, fingerprint)
 		result.Findings = append(result.Findings, model.Finding{
 			ID:          findingID,
 			CheckID:     c.ID(),

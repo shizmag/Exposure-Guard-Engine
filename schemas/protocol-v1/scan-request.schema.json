@@ -70,6 +70,14 @@
         "max_per_host_concurrency": { "type": "integer", "minimum": 1 },
         "requests_per_second_per_host": { "type": "number", "minimum": 0.1 }
       }
+    },
+    "previous_snapshot": {
+      "type": "object",
+      "required": ["schema_version", "target", "assets", "observations", "findings", "summary"],
+      "properties": {
+        "schema_version": { "type": "string", "const": "1" }
+      },
+      "description": "Optional inline immutable Snapshot v1 used by Engine-owned diffing; Cloud payload limit 4 MiB"
     }
   },
   "additionalProperties": true

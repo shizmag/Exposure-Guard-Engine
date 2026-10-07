@@ -10,17 +10,18 @@ const (
 
 // ScanRequest represents the structured input contract for an exposure scan.
 type ScanRequest struct {
-	SchemaVersion       string   `json:"schema_version"`
-	ScanID              string   `json:"scan_id"`
-	Target              string   `json:"target"`
-	Profile             string   `json:"profile,omitempty"`
-	Mode                ScanMode `json:"mode,omitempty"`
-	Modules             []string `json:"modules,omitempty"`
-	DisableModules      []string `json:"disable_modules,omitempty"`
-	Integrations        string   `json:"integrations,omitempty"`
-	DisableIntegrations []string `json:"disable_integrations,omitempty"`
-	RequireIntegrations []string `json:"require_integrations,omitempty"`
-	Limits              Limits   `json:"limits"`
+	SchemaVersion       string    `json:"schema_version"`
+	ScanID              string    `json:"scan_id"`
+	Target              string    `json:"target"`
+	Profile             string    `json:"profile,omitempty"`
+	Mode                ScanMode  `json:"mode,omitempty"`
+	Modules             []string  `json:"modules,omitempty"`
+	DisableModules      []string  `json:"disable_modules,omitempty"`
+	Integrations        string    `json:"integrations,omitempty"`
+	DisableIntegrations []string  `json:"disable_integrations,omitempty"`
+	RequireIntegrations []string  `json:"require_integrations,omitempty"`
+	Limits              Limits    `json:"limits"`
+	PreviousSnapshot    *Snapshot `json:"previous_snapshot,omitempty"`
 }
 
 // NewDefaultScanRequest creates a valid request with safe defaults.

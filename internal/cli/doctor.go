@@ -2,13 +2,17 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/exposureguard/exposureguard/integrations/nuclei"
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
 	"github.com/exposureguard/exposureguard/pkg/integration"
 	"github.com/spf13/cobra"
@@ -92,16 +96,23 @@ type doctorCheckItem struct {
 }
 
 type doctorReport struct {
-	Status                DoctorStatus            `json:"status"`
-	Engine                doctorEngineView        `json:"engine"`
-	ProtocolVersion       string                  `json:"protocol_version"`
-	SnapshotSchemaVersion string                  `json:"snapshot_schema_version"`
-	TempDir               doctorTempView          `json:"temp_dir"`
-	Integrations          []doctorIntegrationItem `json:"integrations"`
-	NucleiTemplates       doctorTemplatesView     `json:"nuclei_templates"`
-	NetworkSafety         doctorNetworkSafetyView `json:"network_safety"`
-	Checks                []doctorCheckItem       `json:"checks"`
-	AllReady              bool                    `json:"all_ready"`
+	Status                     DoctorStatus            `json:"status"`
+	Engine                     doctorEngineView        `json:"engine"`
+	ProtocolVersion            string                  `json:"protocol_version"`
+	SnapshotSchemaVersion      string                  `json:"snapshot_schema_version"`
+	BatchProtocolVersion       string                  `json:"batch_protocol_version"`
+	IdentityAlgorithmVersion   string                  `json:"identity_algorithm_version"`
+	ToolchainManifestSHA256    string                  `json:"toolchain_manifest_sha256"`
+	DistributionManifestSHA256 string                  `json:"distribution_manifest_sha256"`
+	NucleiRulesetVersion       string                  `json:"nuclei_ruleset_version"`
+	NucleiRulesetSHA256        string                  `json:"nuclei_ruleset_sha256"`
+	MaxParallelScans           int                     `json:"max_parallel_scans"`
+	TempDir                    doctorTempView          `json:"temp_dir"`
+	Integrations               []doctorIntegrationItem `json:"integrations"`
+	NucleiTemplates            doctorTemplatesView     `json:"nuclei_templates"`
+	NetworkSafety              doctorNetworkSafetyView `json:"network_safety"`
+	Checks                     []doctorCheckItem       `json:"checks"`
+	AllReady                   bool                    `json:"all_ready"`
 }
 
 func runDoctor(ctx context.Context, opts *doctorOptions) error {
@@ -109,6 +120,8 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	defer cancel()
 
 	overallStatus := StatusPass
+	parallelScans, parallelErr := maxParallelScans()
+	manifestHash, manifestErr := distributionManifestStatus()
 
 	report := doctorReport{
 		Engine: doctorEngineView{
@@ -118,13 +131,34 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 			OS:        runtime.GOOS,
 			Arch:      runtime.GOARCH,
 		},
-		ProtocolVersion:       buildinfo.ProtocolVersion,
-		SnapshotSchemaVersion: buildinfo.SnapshotSchemaVersion,
+		ProtocolVersion:            buildinfo.ProtocolVersion,
+		SnapshotSchemaVersion:      buildinfo.SnapshotSchemaVersion,
+		BatchProtocolVersion:       buildinfo.BatchProtocolVersion,
+		IdentityAlgorithmVersion:   buildinfo.IdentityAlgorithmVersion,
+		ToolchainManifestSHA256:    fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())),
+		DistributionManifestSHA256: manifestHash,
+		NucleiRulesetVersion:       nuclei.CuratedProfileVersion,
+		NucleiRulesetSHA256:        nuclei.CuratedRulesetSHA256,
+		MaxParallelScans:           parallelScans,
 		NetworkSafety: doctorNetworkSafetyView{
 			Status:  StatusWarn,
 			Message: "Host cannot verify platform egress firewall; ensure scanner egress rules isolate RFC1918 and metadata in production.",
 		},
 		AllReady: true,
+	}
+	if manifestErr != nil {
+		report.AllReady = false
+		overallStatus = StatusFail
+		report.Checks = append(report.Checks, doctorCheckItem{Name: "distribution_manifest", Status: StatusFail, Message: manifestErr.Error()})
+	} else {
+		report.Checks = append(report.Checks, doctorCheckItem{Name: "distribution_manifest", Status: StatusPass, Message: "Distribution fingerprint verified"})
+	}
+	if parallelErr != nil {
+		report.AllReady = false
+		overallStatus = StatusFail
+		report.Checks = append(report.Checks, doctorCheckItem{Name: "batch_parallelism", Status: StatusFail, Message: parallelErr.Error()})
+	} else {
+		report.Checks = append(report.Checks, doctorCheckItem{Name: "batch_parallelism", Status: StatusPass, Message: fmt.Sprintf("Maximum parallel scans: %d", parallelScans)})
 	}
 
 	report.Checks = append(report.Checks, doctorCheckItem{
@@ -319,6 +353,49 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	return nil
 }
 
+func distributionManifestStatus() (string, error) {
+	path := filepath.Join(integration.DefaultExposureGuardHome(), "distribution-manifest.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		executable, exeErr := os.Executable()
+		if exeErr != nil {
+			return "", fmt.Errorf("distribution manifest missing: %w", err)
+		}
+		candidates := []string{filepath.Join(filepath.Dir(executable), "..", "distribution-manifest.json"), filepath.Join("/opt/exposureguard", "distribution-manifest.json")}
+		for _, candidate := range candidates {
+			data, err = os.ReadFile(candidate)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return "", fmt.Errorf("distribution manifest missing: %w", err)
+		}
+	}
+	var manifest struct {
+		EngineVersion string `json:"engine_version"`
+		EngineBinary  string `json:"engine_binary_sha256"`
+		Toolchain     string `json:"toolchain_manifest_sha256"`
+		Ruleset       string `json:"nuclei_ruleset_sha256"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return "", fmt.Errorf("distribution manifest invalid: %w", err)
+	}
+	if manifest.EngineVersion != buildinfo.Version {
+		return "", errors.New("distribution engine version mismatch")
+	}
+	if executable, err := os.Executable(); err != nil || manifest.EngineBinary != fileSHA256(executable) {
+		return "", errors.New("distribution engine binary fingerprint mismatch")
+	}
+	if manifest.Toolchain != fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())) {
+		return "", errors.New("distribution toolchain fingerprint mismatch")
+	}
+	if manifest.Ruleset != nuclei.CuratedRulesetSHA256 {
+		return "", errors.New("distribution ruleset fingerprint mismatch")
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+}
+
 func discoverNucleiTemplates() (string, string, error) {
 	// 1. Explicit environment override
 	if envPath := os.Getenv("EXPOSUREGUARD_NUCLEI_TEMPLATES"); envPath != "" {
@@ -332,7 +409,7 @@ func discoverNucleiTemplates() (string, string, error) {
 
 	// 2. Default location in EXPOSUREGUARD_HOME
 	home := integration.DefaultExposureGuardHome()
-	homeTemplates := filepath.Join(home, "nuclei-templates")
+	homeTemplates := filepath.Join(home, "share", "nuclei-templates")
 	if _, err := os.Stat(homeTemplates); err == nil {
 		ver := readVersionFile(filepath.Join(homeTemplates, ".nuclei-templates-version"))
 		return homeTemplates, ver, nil
@@ -355,5 +432,5 @@ func readVersionFile(path string) string {
 	if err != nil {
 		return "unknown"
 	}
-	return string(b)
+	return strings.TrimSpace(string(b))
 }

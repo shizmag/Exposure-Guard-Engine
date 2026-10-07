@@ -1,12 +1,11 @@
 package nuclei
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/exposureguard/exposureguard/pkg/integration"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 )
 
 // Info holds metadata fields reported by Nuclei templates.
@@ -100,6 +99,7 @@ func MapRecord(rec Record, emit integration.Emitter) {
 		Subject: subject,
 		Data:    obsData,
 	}
+	obs.ID = snapshot.ComputeObservationID(obs.Kind, obs.Subject, obs.Data)
 	emit.EmitObservation(obs)
 
 	// 2. Derive actionable Finding if severity is above Info or actionable exposure
@@ -116,8 +116,7 @@ func MapRecord(rec Record, emit integration.Emitter) {
 			desc = "Exposed resource or misconfiguration identified at " + subject
 		}
 
-		h := sha256.Sum256([]byte(rec.TemplateID + ":" + subject))
-		fp := hex.EncodeToString(h[:])
+		fp := snapshot.StableID("nuclei_finding", rec.TemplateID, subject)
 
 		var maskedPreview string
 		if len(rec.ExtractedResults) > 0 {
@@ -125,6 +124,7 @@ func MapRecord(rec Record, emit integration.Emitter) {
 		}
 
 		finding := model.Finding{
+			ID:          snapshot.ComputeFindingID("nuclei."+rec.TemplateID, subject, fp),
 			CheckID:     "integration.nuclei",
 			RuleID:      "nuclei." + rec.TemplateID,
 			Severity:    sev,

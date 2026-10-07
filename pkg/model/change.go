@@ -12,6 +12,7 @@ const (
 
 // Change represents a state transition detected between two snapshots.
 type Change struct {
+	Key        string     `json:"change_key"`
 	ID         string     `json:"id"`
 	Type       string     `json:"type"`
 	Subject    string     `json:"subject"`

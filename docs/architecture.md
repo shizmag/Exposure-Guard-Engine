@@ -9,7 +9,7 @@ ExposureGuard Engine is a standalone, defensive outside-in scanner and inventory
 - Safe, outside-in inspection of public websites and internet-facing assets.
 - Produces normalized deterministic **Snapshots** (`Observation`, `Asset`, `Finding`).
 - Detects meaningful state drift across time (**Changes** / Diff engine).
-- Zero-dependency worker process for ExposureGuard Cloud (communicates via stdin ScanRequest / stdout JSONL).
+- Ephemeral worker process for ExposureGuard Cloud: `scan` consumes one ScanRequest v1; scheduled `batch` consumes bounded BatchRequest v1 and multiplexes item events on stdout JSONL. Cloud owns scheduling, retries, authorization, and persistence.
 - Enhanced discovery profiles (`standard`, `deep`) orchestrate pinned external discovery tools (`subfinder`, `httpx`, `katana`, `nuclei`).
 
 ### What it is NOT

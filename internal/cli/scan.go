@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/exposureguard/exposureguard/internal/buildinfo"
 	"github.com/exposureguard/exposureguard/internal/config"
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/engine"
@@ -21,6 +24,17 @@ import (
 	"github.com/exposureguard/exposureguard/pkg/render/human"
 	"github.com/spf13/cobra"
 )
+
+func generateScanID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(raw[:])
+	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:]
+}
 
 type scanOptions struct {
 	target              string
@@ -123,12 +137,15 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		var reqBytes []byte
 		var err error
 		if opts.requestJSON == "-" {
-			reqBytes, err = io.ReadAll(os.Stdin)
+			reqBytes, err = io.ReadAll(io.LimitReader(os.Stdin, 8<<20+1))
 		} else {
 			reqBytes, err = os.ReadFile(opts.requestJSON)
 		}
 		if err != nil {
 			return &ExitCodeError{Code: 2, Err: fmt.Errorf("reading request JSON failed: %w", err)}
+		}
+		if len(reqBytes) > 8<<20 {
+			return &ExitCodeError{Code: 2, Err: errors.New("ScanRequest exceeds 8 MiB")}
 		}
 		if err := json.Unmarshal(reqBytes, &req); err != nil {
 			return &ExitCodeError{Code: 2, Err: fmt.Errorf("unmarshaling request JSON failed: %w", err)}
@@ -183,6 +200,24 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 		}
 	}
 
+	if req.ScanID == "" {
+		req.ScanID = generateScanID()
+	}
+	if req.SchemaVersion == "" {
+		req.SchemaVersion = buildinfo.ProtocolVersion
+	}
+	if req.Profile == "" {
+		req.Profile = "standard"
+	}
+	if req.Mode == "" {
+		req.Mode = model.ScanModePublic
+	}
+	if req.Limits.TotalTimeoutSeconds == 0 {
+		req.Limits = cfg.Limits
+	}
+	if req.Integrations == "" {
+		req.Integrations = "auto"
+	}
 	req.Limits.Clamp()
 
 	// Apply timeout to context
@@ -191,7 +226,7 @@ func runScan(ctx context.Context, opts *scanOptions) error {
 	defer cancel()
 
 	// Setup previous snapshot if provided
-	var prevSnap *model.Snapshot
+	prevSnap := req.PreviousSnapshot
 	if opts.previousSnapshot != "" {
 		pBytes, err := os.ReadFile(opts.previousSnapshot)
 		if err != nil {

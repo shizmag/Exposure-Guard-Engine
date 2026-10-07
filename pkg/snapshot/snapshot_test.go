@@ -72,6 +72,22 @@ func TestSnapshotGoldenCompatibility(t *testing.T) {
 	assert.Equal(t, 1, snap.Summary.TotalFindings)
 }
 
+func TestStableIDUsesVersionedDomainAndFullSHA256(t *testing.T) {
+	asset := StableID("asset", "hostname", "example.com")
+	if len(asset) != 64 {
+		t.Fatalf("stable ID has %d chars, want 64", len(asset))
+	}
+	if asset != StableID("asset", "hostname", "example.com") {
+		t.Fatal("stable ID is not deterministic")
+	}
+	if asset == StableID("finding", "hostname", "example.com") {
+		t.Fatal("stable ID domain separation failed")
+	}
+	if StableID("asset", "a", "b") == StableID("asset", "a", "b", "") {
+		t.Fatal("stable ID field boundaries collided")
+	}
+}
+
 func TestComputeCanonicalHashInvariants(t *testing.T) {
 	tgt := model.Target{
 		URL:    "https://example.com/",

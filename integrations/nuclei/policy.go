@@ -5,6 +5,8 @@ import "strings"
 const (
 	CuratedProfileVersion   = "v1.0-defensive"
 	CuratedTemplatesVersion = "10.5.0"
+	CuratedRulesetSHA256    = "9d9645adf0d134ecd593489cdbff384460e143761878c488ff415bdede7164b0"
+	CuratedRulesetPath      = "profiles/nuclei/v1/manifest.json"
 )
 
 // CuratedTemplateIDs defines the deterministic, safety-audited set of Nuclei template IDs

@@ -137,13 +137,18 @@ exposureguard scan https://example.com --format json
 ```
 
 ### Real-time Streaming JSONL
-Ideal for Cloud workers and CI pipelines:
+Single scan JSONL stays compatible with existing Scan Protocol v1 consumers:
 ```bash
 exposureguard scan \
   --request-json - \
   --format jsonl < request.json
 ```
-Streams strictly ordered events (`seq: 1..N`) with terminal completion guarantees. See [docs/protocol-v1.md](docs/protocol-v1.md).
+
+For scheduled background work, submit a bounded Batch Protocol v1 request:
+```bash
+exposureguard batch --request-json - --format jsonl < batch-request.json
+```
+Use `scan` for manual/latency-sensitive requests; Cloud schedules/retries/persists and uses `batch` for monitoring. Batch limits workload count separately from concurrency (default 4 active, max 4; max 20 workloads). See [docs/batch-protocol-v1.md](docs/batch-protocol-v1.md), [docs/protocol-v1.md](docs/protocol-v1.md), and [docs/cloud-integration.md](docs/cloud-integration.md).
 
 ---
 

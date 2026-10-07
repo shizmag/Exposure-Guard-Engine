@@ -1,6 +1,6 @@
 .PHONY: all build test test-race vet lint clean ci \
 	tools-install tools-check integrations-test docker-build docker-smoke install-local \
-	generate manifest-check release-smoke
+	generate manifest-check release-smoke batch-test batch-e2e batch-e2e-stdin batch-load-test e2e
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/exposureguard
@@ -42,6 +42,21 @@ tools-check:
 
 integrations-test:
 	go test -v ./integrations/...
+
+batch-test:
+	go test -race ./internal/cli ./pkg/batch ./pkg/integration
+
+batch-e2e: build
+	./bin/exposureguard batch --request-json testdata/cloud/batch-request.json --format jsonl
+
+batch-e2e-stdin: build
+	./bin/exposureguard batch --request-json - --format jsonl < testdata/cloud/batch-request.json
+
+batch-load-test:
+	go test -run 'TestExecuteBoundsWorkersAndPreservesInputOrder|TestBatchHardWorkloadAndResourceLimits' -count=1 -v ./pkg/batch ./internal/cli
+
+e2e:
+	go test -v ./test/e2e/...
 
 docker-build:
 	docker build -t exposureguard .

@@ -1,14 +1,22 @@
 {
   "schema_version": "1",
-  "scan_id": "c1000000-0000-0000-0000-000000000001",
+  "scan_id": "c1000000-0000-4000-8000-000000000001",
   "target": "https://example.com",
   "profile": "standard",
   "mode": "public",
-  "integrations": "subfinder",
   "limits": {
     "total_timeout_seconds": 120,
+    "request_timeout_seconds": 10,
+    "dns_timeout_seconds": 5,
+    "tls_handshake_timeout_seconds": 7,
+    "max_redirects": 8,
+    "max_depth": 2,
+    "max_pages": 100,
+    "max_assets": 500,
+    "max_response_bytes": 4194304,
+    "max_total_download_bytes": 52428800,
     "max_concurrency": 8,
-    "max_pages": 50,
-    "max_depth": 2
+    "max_per_host_concurrency": 4,
+    "requests_per_second_per_host": 2
   }
 }

@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -64,6 +65,27 @@ func TestEncoderConcurrentStrictOrder(t *testing.T) {
 		assert.Equal(t, "scan-concurrent", env.ScanID)
 	}
 }
+
+func TestEncoderHonorsOutputBudget(t *testing.T) {
+	var output bytes.Buffer
+	enc := NewEncoderWithLimit(&output, "scan-budget", 1)
+	require.Error(t, enc.Emit(EventScanStarted, map[string]string{"target": "x"}))
+	assert.LessOrEqual(t, output.Len(), 1)
+}
+
+func TestEncoderReturnsStdoutFailure(t *testing.T) {
+	enc := NewEncoder(errorWriter{}, "scan-write-fail")
+	require.Error(t, enc.Emit(EventScanStarted, nil))
+	err := enc.Emit(EventScanSummary, nil)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, errWriterFailure))
+}
+
+type errorWriter struct{}
+
+var errWriterFailure = errors.New("stdout failed")
+
+func (errorWriter) Write([]byte) (int, error) { return 0, errWriterFailure }
 
 func TestEncoderTerminalGuarantees(t *testing.T) {
 	t.Run("rejects_after_completed", func(t *testing.T) {

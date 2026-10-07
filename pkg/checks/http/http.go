@@ -14,6 +14,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 )
 
 // Check performs safe root HTTP probe, security headers evaluation, and cookie metadata analysis.
@@ -81,7 +82,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 		"redirected":       finalURL != target.URL,
 	}
 
-	httpObsID := fmt.Sprintf("%x", sha256.Sum256([]byte("http:root:"+target.URL)))
+	httpObsID := snapshot.StableID("observation", "http_response", target.URL)
 	result.Observations = append(result.Observations, model.Observation{
 		ID:      httpObsID,
 		Kind:    "http_response",
@@ -133,7 +134,7 @@ func (c *Check) analyzeHeaders(header http.Header, target model.Target, finalURL
 		}
 	}
 
-	obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("headers:"+target.URL)))
+	obsID := snapshot.StableID("observation", "security_headers", target.URL)
 	obs := model.Observation{
 		ID:      obsID,
 		Kind:    "security_headers",
@@ -146,7 +147,7 @@ func (c *Check) analyzeHeaders(header http.Header, target model.Target, finalURL
 	isHTTPS := target.Scheme == "https" || strings.HasPrefix(finalURL, "https://")
 	if isHTTPS && header.Get("Strict-Transport-Security") == "" {
 		findings = append(findings, model.Finding{
-			ID:          fmt.Sprintf("%x", sha256.Sum256([]byte("finding:http.missing_hsts:"+target.Host))),
+			ID:          snapshot.ComputeFindingID("http.missing_hsts", target.Host+target.URL, "missing"),
 			CheckID:     c.ID(),
 			RuleID:      "http.missing_hsts",
 			Severity:    model.SeverityLow,
@@ -164,7 +165,7 @@ func (c *Check) analyzeHeaders(header http.Header, target model.Target, finalURL
 	// Finding: Technology disclosure in X-Powered-By
 	if xpb := header.Get("X-Powered-By"); xpb != "" {
 		findings = append(findings, model.Finding{
-			ID:          fmt.Sprintf("%x", sha256.Sum256([]byte("finding:http.technology_disclosure:"+target.Host+":"+xpb))),
+			ID:          snapshot.ComputeFindingID("http.technology_disclosure", target.Host, xpb),
 			CheckID:     c.ID(),
 			RuleID:      "http.technology_disclosure",
 			Severity:    model.SeverityInfo,
@@ -206,7 +207,7 @@ func (c *Check) analyzeCookies(cookies []*http.Cookie, target model.Target) ([]m
 			Path:     ck.Path,
 		}
 
-		obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("cookie:"+target.Host+":"+ck.Name)))
+		obsID := snapshot.StableID("observation", "cookie_metadata", target.Host, ck.Name)
 		observations = append(observations, model.Observation{
 			ID:      obsID,
 			Kind:    "cookie_metadata",
@@ -232,7 +233,7 @@ func (c *Check) analyzeCookies(cookies []*http.Cookie, target model.Target) ([]m
 
 		if target.Scheme == "https" && isSensitive && !ck.Secure {
 			findings = append(findings, model.Finding{
-				ID:          fmt.Sprintf("%x", sha256.Sum256([]byte("finding:cookie.missing_secure:"+target.Host+":"+ck.Name))),
+				ID:          snapshot.ComputeFindingID("cookie.missing_secure", target.Host+ck.Name, "missing"),
 				CheckID:     c.ID(),
 				RuleID:      "cookie.missing_secure",
 				Severity:    model.SeverityMedium,
@@ -276,7 +277,7 @@ func (c *Check) probeWellKnown(ctx context.Context, env *checks.Environment, tar
 		if resp.StatusCode == http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 			resp.Body.Close()
-			obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("wellknown:"+targetURL)))
+			obsID := snapshot.StableID("observation", "well_known_resource", targetURL)
 			observations = append(observations, model.Observation{
 				ID:      obsID,
 				Kind:    "well_known_resource",
@@ -293,7 +294,7 @@ func (c *Check) probeWellKnown(ctx context.Context, env *checks.Environment, tar
 			if p == "/robots.txt" {
 				extracted := parseRobotsSitemaps(string(body))
 				for _, sm := range extracted {
-					assetID := fmt.Sprintf("%x", sha256.Sum256([]byte("url:"+sm)))
+					assetID := snapshot.ComputeAssetID(model.AssetKindURL, sm)
 					assets = append(assets, model.Asset{
 						ID:            assetID,
 						Kind:          model.AssetKindURL,

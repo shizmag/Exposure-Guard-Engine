@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/exposureguard/exposureguard/pkg/model"
@@ -117,6 +118,13 @@ func TestDiffObservations(t *testing.T) {
 	assert.True(t, changeTypes["http.security_header_removed"])
 	assert.True(t, changeTypes["http.security_header_added"])
 	assert.True(t, changeTypes["http.security_header_changed"])
+	for _, change := range changes {
+		if strings.HasPrefix(change.Type, "http.security_header_") {
+			assert.Equal(t, "https://example.com/", change.Subject[:len("https://example.com/")], "header change subject includes asset URL")
+			assert.NotEmpty(t, change.Key)
+			assert.Len(t, change.Key, 64)
+		}
+	}
 }
 
 func TestDiffZeroChangesOnIdenticalState(t *testing.T) {
@@ -206,6 +214,7 @@ func TestDiffSemanticTransitions(t *testing.T) {
 		types[ch.Type] = ch
 		assert.NotEmpty(t, ch.ID, "change must have a non-empty deterministic ID")
 		assert.Len(t, ch.ID, 64, "change ID must be 64-hex SHA-256 characters")
+		assert.Len(t, ch.Key, 64, "change key must be 64-hex SHA-256 characters")
 	}
 
 	assert.Contains(t, types, "asset.removed")

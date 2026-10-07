@@ -17,6 +17,7 @@ const (
 	EventScanSummary     EventType = "scan.summary"
 	EventScanCompleted   EventType = "scan.completed"
 	EventScanFailed      EventType = "scan.failed"
+	EventScanCancelled   EventType = "scan.cancelled"
 )
 
 // Envelope wraps every streaming JSONL event.

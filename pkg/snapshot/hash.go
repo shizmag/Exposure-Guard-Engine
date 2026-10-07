@@ -117,6 +117,6 @@ func ComputeCanonicalHash(s *model.Snapshot) string {
 	}
 
 	payload, _ := json.Marshal(repr)
-	sum := sha256.Sum256(payload)
+	sum := sha256.Sum256(append([]byte("exposureguard:snapshot-fingerprint:v1\x00"), payload...))
 	return hex.EncodeToString(sum[:])
 }

@@ -7,6 +7,7 @@ set -euo pipefail
 MODE="with-tools"
 CUSTOM_PREFIX=""
 CHECK_ONLY=0
+ENGINE_VERSION_OVERRIDE=""
 
 show_help() {
     cat << EOF
@@ -20,6 +21,7 @@ Options:
   --engine-only     Build and install ExposureGuard binary only
   --check           Dry-run check: verify host prerequisites and report readiness
   --prefix <path>   Set custom installation prefix (default: \$HOME/.local/share/exposureguard)
+  --version <value> Embed the exact Cloud-locked Engine version in the installed binary
   -h, --help        Show this help message
 EOF
 }
@@ -44,6 +46,14 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             CUSTOM_PREFIX="$2"
+            shift 2
+            ;;
+        --version)
+            if [ -z "${2:-}" ]; then
+                echo "Error: --version requires a value" >&2
+                exit 1
+            fi
+            ENGINE_VERSION_OVERRIDE="$2"
             shift 2
             ;;
         -h|--help)
@@ -173,7 +183,9 @@ fi
 
 BIN_DIR="${INSTALL_PREFIX}/bin"
 TOOLS_DIR="${INSTALL_PREFIX}/tools"
-TEMPLATES_DIR="${TOOLS_DIR}/nuclei/templates"
+TEMPLATES_DIR="${INSTALL_PREFIX}/share/nuclei-templates"
+PROFILES_DIR="${INSTALL_PREFIX}/profiles/nuclei/v1"
+MANIFEST_PATH="${INSTALL_PREFIX}/distribution-manifest.json"
 
 echo "Installation Directory: ${INSTALL_PREFIX}"
 echo "Binaries Directory:     ${BIN_DIR}"
@@ -192,7 +204,7 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
 fi
 
 # Ensure target directories exist
-mkdir -p "${BIN_DIR}" "${TOOLS_DIR}"
+mkdir -p "${BIN_DIR}" "${TOOLS_DIR}" "${TEMPLATES_DIR}" "${PROFILES_DIR}" "$(dirname "$MANIFEST_PATH")"
 
 TMP_DIR="$(mktemp -d -t eg-install-XXXXXX)"
 cleanup() {
@@ -202,7 +214,10 @@ trap cleanup EXIT INT TERM
 
 # 1. Build and install ExposureGuard CLI
 echo "==> Building ExposureGuard engine..."
-go build -ldflags "-s -w" -o "${BIN_DIR}/exposureguard" ./cmd/exposureguard
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+ENGINE_VERSION="${ENGINE_VERSION_OVERRIDE:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.1.0-dev)}"
+go build -ldflags "-s -w -X github.com/exposureguard/exposureguard/internal/buildinfo.Version=${ENGINE_VERSION} -X github.com/exposureguard/exposureguard/internal/buildinfo.GitCommit=${GIT_COMMIT} -X github.com/exposureguard/exposureguard/internal/buildinfo.BuildDate=${BUILD_DATE}" -o "${BIN_DIR}/exposureguard" ./cmd/exposureguard
 chmod 755 "${BIN_DIR}/exposureguard"
 echo "✓ Installed ${BIN_DIR}/exposureguard"
 
@@ -293,8 +308,46 @@ if [ "$MODE" = "with-tools" ]; then
     mkdir -p "${TEMPLATES_DIR}" "${TMP_DIR}/tpl_ext"
     unzip -q -o "$TPL_FILE" -d "${TMP_DIR}/tpl_ext"
     cp -r "${TMP_DIR}/tpl_ext"/nuclei-templates-*/* "${TEMPLATES_DIR}/"
+    printf '%s\n' "$ACTUAL_TPL_SHA" > "${TEMPLATES_DIR}/.nuclei-templates-archive.sha256"
+    cp -R profiles/nuclei/v1/. "${PROFILES_DIR}/."
     echo "    ✓ Nuclei templates installed at ${TEMPLATES_DIR}"
 fi
+
+# Write immutable runtime manifest after exact files are installed.
+python3 - "$MANIFEST_PATH" "$BIN_DIR" "$TEMPLATES_DIR" "$PROFILES_DIR" "$ENGINE_VERSION_OVERRIDE" <<'PY'
+import hashlib, json, pathlib, sys
+manifest_path, bindir, templates, profiles, override = sys.argv[1:]
+import subprocess
+commit = subprocess.run(['git','rev-parse','--short','HEAD'], capture_output=True, text=True).stdout.strip() or 'unknown'
+lock_path = pathlib.Path('tools.lock.json')
+lock = json.loads(lock_path.read_text())
+def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+def binary(name):
+    path = pathlib.Path(bindir) / name
+    return {'version': lock['tools'][name]['version'], 'sha256': sha(path) if path.is_file() else ''}
+profile_manifest = pathlib.Path(profiles) / 'manifest.json'
+manifest = {
+  'distribution_schema_version': '1',
+  'engine': 'exposureguard',
+  'engine_version': override or '0.1.0-dev',
+  'engine_binary_sha256': sha(pathlib.Path(bindir) / 'exposureguard'),
+  'engine_commit': commit,
+  'protocol_version': '1', 'batch_protocol_version': '1', 'snapshot_schema_version': '1', 'identity_algorithm_version': '1',
+  'toolchain_manifest_sha256': sha(lock_path),
+  'tools': {name: binary(name) for name in ('subfinder','httpx','katana','nuclei')},
+  'nuclei_templates_version': lock['tools']['nuclei-templates']['version'],
+  'nuclei_templates_sha256': sha(pathlib.Path(templates) / '.nuclei-templates-archive.sha256') if (pathlib.Path(templates) / '.nuclei-templates-archive.sha256').exists() else lock['tools']['nuclei-templates']['sha256'],
+  'nuclei_ruleset_version': 'v1.0-defensive',
+  'nuclei_ruleset_sha256': sha(profile_manifest),
+}
+required = {'engine_binary_sha256', 'toolchain_manifest_sha256', 'nuclei_ruleset_sha256', 'nuclei_templates_sha256'}
+assert required.issubset(manifest) and all(len(manifest[k]) == 64 for k in required)
+pathlib.Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
+PY
+
+export EXPOSUREGUARD_HOME="${INSTALL_PREFIX}"
+export EXPOSUREGUARD_NUCLEI_TEMPLATES="${TEMPLATES_DIR}"
+
 
 echo ""
 echo "=========================================================="

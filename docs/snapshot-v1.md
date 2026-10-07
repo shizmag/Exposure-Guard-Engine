@@ -1,108 +1,24 @@
-# ExposureGuard Engine — Snapshot v1 Specification
+# ExposureGuard Engine — Snapshot v1
 
-**Status**: Frozen (v0.1.0)  
-**Schema Identifier**: `snapshot_version = 1`  
-**JSON Schema**: `schemas/snapshot-v1.schema.json`
+**Schema:** `schemas/snapshot-v1.schema.json`. Snapshots represent one target at one capture time. Batch never merges Snapshots; every scan has its own.
 
-A Snapshot is ExposureGuard's canonical, normalized inventory of a target's external attack surface at a point in time. It serves as the baseline for all temporal diffing and drift detection.
+## Stable Identity Algorithm v1
 
----
+All persistent asset, observation, finding, change-key, and change IDs are 64 lowercase hex SHA-256 values. Each digest is domain-separated and versioned:
 
-## 1. Core Principles
-
-1. **Determinism**: Given identical target state, two independent scan executions must produce identical normalized snapshots and canonical fingerprints regardless of goroutine concurrency, worker completion order, network latency, or runtime environment (local vs. Docker).
-2. **Low Noise**: Volatile runtime telemetry (response times, TTLs, ephemeral timestamps, volatile headers) are explicitly isolated from identity and comparison logic to prevent false-positive diff alerts.
-3. **Immutability & Stability**: Asset, Observation, and Finding identifiers are derived purely from stable content hashes rather than random UUIDs.
-
----
-
-## 2. Model Structure
-
-A complete Snapshot consists of:
-```json
-{
-  "schema_version": "1",
-  "fingerprint": "a3b1c8f492e071...",
-  "target": { ... },
-  "captured_at": "2025-03-01T12:00:00Z",
-  "assets": [ ... ],
-  "observations": [ ... ],
-  "findings": [ ... ],
-  "summary": { ... }
-}
+```text
+H(domain, fields...) = SHA256(
+  "exposureguard:stable-id:v1\0" ||
+  for each UTF-8 field: uint64_be(byte_length(field)) || field
+)
 ```
 
-### Top-Level Fields
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `schema_version` | string | Constant `"1"` for Snapshot Schema v1. |
-| `fingerprint` | string | Canonical SHA-256 hex digest of normalized state. |
-| `target` | Target | Fully parsed target URL, host, domain, and scheme. |
-| `captured_at` | RFC3339 string | Wall-clock timestamp when snapshot was captured. |
-| `assets` | []Asset | Deterministically sorted list of discovered surface items. |
-| `observations` | []Observation | Deterministically sorted list of raw telemetry and checks. |
-| `findings` | []Finding | Deterministically sorted list of actionable security issues. |
-| `summary` | SnapshotSummary | Counts of assets, observations, and findings by severity. |
+Length-prefixing avoids concatenation/delimiter ambiguity. Domains include `asset`, `observation`, `finding`, `change-key`, `change-value`, and `change`. Asset inputs are `(kind, canonical_value)`. Observation inputs are `(kind, subject, canonical JSON stable data)` excluding documented volatile fields. Finding inputs are `(rule_id, asset_id, semantic fingerprint)`. Values are lowercase hex. This v1 identity freeze replaces prior truncated/non-domain-separated identities; Cloud must not assume old fixture IDs remain stable.
 
----
+`change_key = H(change-key, type, subject_id)` identifies type+subject. `change_id = H(change, change_key, H(change-value, canonical_old), H(change-value, canonical_new))` identifies one transition. Thus A→B and B→C share key but have distinct IDs; Cloud occurrence key is `(scan_run_id, change_id)`.
 
-## 3. Stable Identity Computation
+## Snapshot fingerprint
 
-### Assets
-- **Asset ID**: Full 64 hex characters of `SHA-256(Kind + ":" + Value)`
-- **Kinds**: `hostname`, `url`, `javascript`, `source_map`, `endpoint_candidate`, `external_reference`.
-- **Deduplication**: Assets with identical IDs are merged. Multiple sources are concatenated deterministically.
+Snapshot fingerprint is SHA-256 over deterministic canonical JSON prefixed by `exposureguard:snapshot-fingerprint:v1\0`. Capture time, durations, TTL, and other volatile fields remain excluded. Assets/observations/findings are normalized and deterministically sorted. Verify with `exposureguard snapshot hash file.json`.
 
-### Observations
-- **Observation ID**: Full 64 hex characters of `SHA-256(Kind + ":" + Subject + ":" + StableDataJSON)`
-- **Volatile Field Suppression**: Keys such as `response_time_ms`, `ttl`, `timestamp`, and `captured_at` are stripped before hashing.
-
-### Findings
-- **Finding ID**: Full 64 hex characters of `SHA-256(RuleID + ":" + Asset + ":" + Fingerprint)`
-- **Stability Guarantee**: If evidence varies slightly in line number or timestamps, the structural `Fingerprint` preserves issue identity across repeated runs.
-
----
-
-## 4. Sorting & Ordering Invariants
-
-Snapshots strictly enforce deterministic sort order:
-1. **Assets**: Ordered by `Kind` ascending, then `Value` ascending, then `ID` ascending.
-2. **Observations**: Ordered by `Kind` ascending, then `Subject` ascending, then `ID` ascending.
-3. **Findings**: Ordered by `Severity` descending (`critical` > `high` > `medium` > `low` > `info`), then `RuleID` ascending, then `Asset` ascending, then `ID` ascending.
-
----
-
-## 5. Canonical Fingerprint (`ComputeCanonicalHash`)
-
-The `fingerprint` field is calculated over a canonical, stripped representation of the snapshot:
-$$\text{fingerprint} = \text{SHA-256}(\text{CanonicalJSON})$$
-
-### Invariance Guarantees
-The canonical hash **does not depend on**:
-- `captured_at` timestamp
-- Total scan duration or stage latencies
-- Goroutine scheduling or network packet order
-- Local host vs. Docker container execution
-- DNS TTL variations
-
-You can verify the fingerprint of any snapshot file via the CLI:
-```bash
-exposureguard snapshot hash snapshot.json
-```
-
----
-
-## 6. Diffing & Noise Reduction Contract
-
-When executing `exposureguard diff <old.json> <new.json>`:
-1. **Zero-Change Guarantee**: Identical semantic states produce zero changes, even if item orderings or timestamps in the files differ.
-2. **Suppressed Volatile Fields**: Dynamic HTTP headers (`Date`, `ETag`, `Set-Cookie` values, `X-Request-Id`, `CF-Ray`) and DNS TTL fluctuations never generate false-positive changes.
-3. **Change Identity**: Every `Change` struct possesses a deterministic `ID` computed as full 64 hex characters of `SHA-256(Type + ":" + Subject)`.
-
----
-
-## 7. Migration Stance
-
-- ExposureGuard v0.1.0 exclusively produces and accepts `schema_version = "1"`.
-- If an older or newer schema version is detected, the engine emits a clear validation error.
-- Future schema iterations (v2+) will introduce automated migration adapters where feasible.
+Snapshot schema version remains `1`; stable ID contents are intentionally frozen now before v0.1 broad adoption. See `docs/batch-protocol-v1.md` for inline previous snapshots in BatchRequest.

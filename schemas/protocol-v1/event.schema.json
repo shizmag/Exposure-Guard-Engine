@@ -38,7 +38,8 @@
         "warning",
         "scan.summary",
         "scan.completed",
-        "scan.failed"
+        "scan.failed",
+        "scan.cancelled"
       ],
       "description": "Identifies the semantic payload in data"
     },

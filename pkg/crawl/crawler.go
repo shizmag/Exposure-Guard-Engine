@@ -15,6 +15,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 	"github.com/exposureguard/exposureguard/pkg/target"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
@@ -185,20 +186,13 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				mu.Lock()
 				visitedPages = append(visitedPages, page)
 
-				obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("crawl:page:"+item.u.String())))
+				obsData := map[string]any{
+					"url": page.URL, "status_code": page.StatusCode, "content_type": page.ContentType,
+					"content_length": page.ContentLength, "body_fingerprint": page.BodyFingerprint, "depth": page.Depth,
+				}
+				obsID := snapshot.ComputeObservationID("crawled_page", item.u.String(), obsData)
 				observations = append(observations, model.Observation{
-					ID:      obsID,
-					Kind:    "crawled_page",
-					Scope:   "crawl",
-					Subject: item.u.String(),
-					Data: map[string]any{
-						"url":              page.URL,
-						"status_code":      page.StatusCode,
-						"content_type":     page.ContentType,
-						"content_length":   page.ContentLength,
-						"body_fingerprint": page.BodyFingerprint,
-						"depth":            page.Depth,
-					},
+					ID: obsID, Kind: "crawled_page", Scope: "crawl", Subject: item.u.String(), Data: obsData,
 				})
 				mu.Unlock()
 
@@ -217,7 +211,7 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 				// Process JS assets
 				for _, jsURL := range extraction.JavaScriptURLs {
 					jsStr := jsURL.String()
-					jsID := fmt.Sprintf("%x", sha256.Sum256([]byte("javascript:"+jsStr)))
+					jsID := snapshot.ComputeAssetID(model.AssetKindJavaScript, jsStr)
 					addAsset(model.Asset{
 						ID:            jsID,
 						Kind:          model.AssetKindJavaScript,
@@ -230,7 +224,7 @@ func (c *Crawler) Run(ctx context.Context) (*CrawlResult, error) {
 
 				// Process External References
 				for _, extRef := range extraction.ExternalReferences {
-					extID := fmt.Sprintf("%x", sha256.Sum256([]byte("external:"+extRef)))
+					extID := snapshot.ComputeAssetID(model.AssetKindExternal, extRef)
 					addAsset(model.Asset{
 						ID:            extID,
 						Kind:          model.AssetKindExternal,

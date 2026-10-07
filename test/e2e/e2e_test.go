@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,7 +119,7 @@ func TestEndToEndPipelineAndDiff(t *testing.T) {
 			foundSourceMapAppeared = true
 			assert.Equal(t, model.ImportanceMedium, ch.Importance)
 		}
-		if ch.Type == "http.security_header_removed" && ch.Subject == "content_security_policy" {
+		if ch.Type == "http.security_header_removed" && strings.HasSuffix(ch.Subject, "/content_security_policy") {
 			foundCSPRemoved = true
 		}
 		if ch.Type == "finding.appeared" && (ch.Subject == server.URL()+"/static/app.js.map" || ch.Subject == server.URL()+"/.git/config") {

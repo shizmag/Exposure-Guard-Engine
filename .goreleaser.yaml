@@ -36,6 +36,10 @@ archives:
   - format: tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - "distribution-manifest.json"
+      - "tools.lock.json"
+      - "profiles/nuclei/v1/**"
     format_overrides:
       - goos: windows
         format: zip

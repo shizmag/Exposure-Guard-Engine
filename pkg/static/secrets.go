@@ -2,13 +2,13 @@ package static
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"sort"
 
 	"github.com/exposureguard/exposureguard/pkg/model"
 	"github.com/exposureguard/exposureguard/pkg/redact"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 )
 
 type credentialRule struct {
@@ -90,7 +90,7 @@ func DetectCredentials(jsURL string, content []byte) []model.Finding {
 			masked := redact.MaskSecret(rawSecret)
 			line := bytes.Count(content[:start], []byte("\n")) + 1
 
-			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("secret:"+rule.Provider+":"+jsURL+":"+fp)))
+			findingID := snapshot.ComputeFindingID("frontend.credential_exposure:"+rule.Provider, jsURL, fp)
 
 			findings = append(findings, model.Finding{
 				ID:          findingID,

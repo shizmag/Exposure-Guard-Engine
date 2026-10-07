@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,7 +18,13 @@ import (
 
 // OSRunner executes subprocesses on the host operating system.
 type OSRunner struct {
-	BaseTempDir string
+	BaseTempDir     string
+	processSlots    chan struct{}
+	tempBudget      int64
+	outputBudget    int64
+	budgetMu        sync.Mutex
+	tempUsed        int64
+	outputUsedBytes int64
 }
 
 // NewOSRunner initializes an OSRunner with an optional base temporary directory.
@@ -25,8 +32,34 @@ func NewOSRunner(baseTempDir string) *OSRunner {
 	if baseTempDir == "" {
 		baseTempDir = filepath.Join(os.TempDir(), "exposureguard")
 	}
+	processLimit := 4
+	if value := os.Getenv("EXPOSUREGUARD_MAX_PARALLEL_EXTERNAL_PROCESSES"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 && parsed <= 16 {
+			processLimit = parsed
+		}
+	}
+	return NewOSRunnerWithLimits(baseTempDir, processLimit, positiveEnvInt64("EXPOSUREGUARD_MAX_TEMP_BYTES", 256<<20), positiveEnvInt64("EXPOSUREGUARD_MAX_OUTPUT_BYTES", 64<<20))
+}
+
+// NewOSRunnerWithLimits sets batch-wide child process, temp and output budgets.
+func NewOSRunnerWithLimits(baseTempDir string, processes int, tempBudget, outputBudget int64) *OSRunner {
+	if baseTempDir == "" {
+		baseTempDir = filepath.Join(os.TempDir(), "exposureguard")
+	}
+	if processes < 1 || processes > 16 {
+		processes = 4
+	}
+	if tempBudget <= 0 {
+		tempBudget = 256 << 20
+	}
+	if outputBudget <= 0 {
+		outputBudget = 64 << 20
+	}
 	return &OSRunner{
-		BaseTempDir: baseTempDir,
+		BaseTempDir:  baseTempDir,
+		processSlots: make(chan struct{}, processes),
+		tempBudget:   tempBudget,
+		outputBudget: outputBudget,
 	}
 }
 
@@ -46,9 +79,10 @@ func (r *OSRunner) DetectVersion(ctx context.Context, binary string, args []stri
 	defer cancel()
 
 	cmd := exec.CommandContext(timeoutCtx, binPath, args...)
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	outBuf := &boundedBuffer{limit: 64 << 10}
+	errBuf := &boundedBuffer{limit: 64 << 10}
+	cmd.Stdout = outBuf
+	cmd.Stderr = errBuf
 
 	// Clean basic environment
 	cmd.Env = sanitizeEnvironment(nil)
@@ -69,12 +103,25 @@ func (r *OSRunner) Run(ctx context.Context, plan ExecutionPlan) (*RunResult, err
 	if err != nil {
 		return nil, NewError(ErrNotInstalled, plan.Command.Binary, fmt.Sprintf("binary %q not installed", plan.Command.Binary), err)
 	}
+	r.budgetMu.Lock()
+	if r.processSlots == nil {
+		r.processSlots = make(chan struct{}, 4)
+	}
+	processSlots := r.processSlots
+	r.budgetMu.Unlock()
+	select {
+	case processSlots <- struct{}{}:
+		defer func() { <-processSlots }()
+	case <-ctx.Done():
+		return nil, NewError(ErrCancelled, plan.Command.Binary, "process execution cancelled while waiting for batch process slot", ctx.Err())
+	}
 
 	// 1. Isolate temporary directory
 	scanDir := filepath.Join(r.BaseTempDir, fmt.Sprintf("proc-%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(scanDir, 0o700); err != nil {
 		return nil, NewError(ErrInternal, plan.Command.Binary, "creating temp execution directory failed", err)
 	}
+	defer os.RemoveAll(scanDir)
 
 	workDir := plan.Command.WorkingDir
 	if workDir == "" {
@@ -88,11 +135,19 @@ func (r *OSRunner) Run(ctx context.Context, plan ExecutionPlan) (*RunResult, err
 		runCtx, cancel = context.WithTimeout(ctx, plan.Command.Timeout)
 		defer cancel()
 	}
+	if runCtx.Err() != nil {
+		return nil, NewError(ErrCancelled, plan.Command.Binary, "process execution cancelled before start", runCtx.Err())
+	}
 
 	// 3. Prepare command
-	cmd := exec.Command(binPath, plan.Command.Args...)
+	cmd := exec.CommandContext(runCtx, binPath, plan.Command.Args...)
 	cmd.Dir = workDir
 	cmd.Env = sanitizeEnvironment(plan.Command.Env)
+	cmd.Cancel = func() error {
+		terminateProcess(cmd, 250*time.Millisecond)
+		return nil
+	}
+	cmd.WaitDelay = time.Second
 	prepareCommand(cmd)
 
 	// 4. Output capture setup
@@ -100,10 +155,38 @@ func (r *OSRunner) Run(ctx context.Context, plan ExecutionPlan) (*RunResult, err
 	if maxStdout <= 0 {
 		maxStdout = 50 * 1024 * 1024 // 50MB default
 	}
+	if r.outputBudget <= 0 {
+		r.outputBudget = 64 << 20
+	}
+	if r.tempBudget <= 0 {
+		r.tempBudget = 256 << 20
+	}
 	maxStderr := plan.Command.MaxStderrBytes
 	if maxStderr <= 0 {
 		maxStderr = 2 * 1024 * 1024 // 2MB default
 	}
+	maxStdout = min(maxStdout, r.outputBudget)
+	maxStderr = min(maxStderr, r.outputBudget)
+	if maxStdout <= 0 || maxStderr <= 0 || r.tempBudget <= 0 {
+		_ = os.RemoveAll(scanDir)
+		return nil, NewError(ErrInvalidConfig, plan.Command.Binary, "batch process resource budget is invalid", nil)
+	}
+
+	r.budgetMu.Lock()
+	if r.tempUsed+maxStdout > r.tempBudget || r.outputUsedBytes+maxStdout > r.outputBudget {
+		r.budgetMu.Unlock()
+		_ = os.RemoveAll(scanDir)
+		return nil, NewError(ErrOutputLimit, plan.Command.Binary, "global external temp/output budget exhausted", nil)
+	}
+	r.tempUsed += maxStdout
+	r.outputUsedBytes += maxStdout
+	r.budgetMu.Unlock()
+	defer func() {
+		r.budgetMu.Lock()
+		r.tempUsed -= maxStdout
+		r.outputUsedBytes -= maxStdout
+		r.budgetMu.Unlock()
+	}()
 
 	var limitHit atomic.Bool
 	stdoutPath := filepath.Join(scanDir, "stdout.data")
@@ -155,6 +238,10 @@ func (r *OSRunner) Run(ctx context.Context, plan ExecutionPlan) (*RunResult, err
 	case waitErr = <-done:
 	}
 
+	if runCtx.Err() != nil && !errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		_ = stdoutFile.Close()
+		return nil, NewError(ErrCancelled, plan.Command.Binary, "process execution cancelled", runCtx.Err())
+	}
 	duration := time.Since(startTime)
 	_ = stdoutFile.Close()
 
@@ -306,6 +393,18 @@ func (b *boundedBuffer) Write(p []byte) (n int, err error) {
 		p = p[:avail]
 	}
 	return b.buf.Write(p)
+}
+
+func positiveEnvInt64(key string, fallback int64) int64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func (b *boundedBuffer) String() string {

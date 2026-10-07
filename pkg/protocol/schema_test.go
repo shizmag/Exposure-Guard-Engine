@@ -36,6 +36,10 @@ func TestJSONSchemasValidity(t *testing.T) {
 		filepath.Join(root, "schemas", "protocol-v1", "scan-request.schema.json"),
 		filepath.Join(root, "schemas", "protocol-v1", "event.schema.json"),
 		filepath.Join(root, "schemas", "protocol-v1", "scan-result.schema.json"),
+		filepath.Join(root, "schemas", "protocol-v1", "batch-request.schema.json"),
+		filepath.Join(root, "schemas", "protocol-v1", "batch-event.schema.json"),
+		filepath.Join(root, "schemas", "protocol-v1", "batch-result.schema.json"),
+		filepath.Join(root, "schemas", "distribution-manifest.schema.json"),
 		filepath.Join(root, "schemas", "snapshot-v1.schema.json"),
 	}
 

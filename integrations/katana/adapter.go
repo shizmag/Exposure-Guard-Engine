@@ -97,7 +97,7 @@ func (a *Adapter) Plan(ctx context.Context, req integration.Request) (integratio
 	if depth <= 0 {
 		depth = 2
 	}
-	concurrency := req.Limits.MaxConcurrency
+	concurrency := min(req.Limits.MaxConcurrency, 4)
 	if concurrency <= 0 {
 		concurrency = 4
 	}
@@ -121,7 +121,7 @@ func (a *Adapter) Plan(ctx context.Context, req integration.Request) (integratio
 	}
 
 	if req.Limits.RequestsPerSecondPerHost > 0 {
-		args = append(args, "-rl", strconv.Itoa(int(req.Limits.RequestsPerSecondPerHost)))
+		args = append(args, "-rl", strconv.Itoa(max(1, int(req.Limits.RequestsPerSecondPerHost))))
 	}
 	if req.Limits.RequestTimeoutSeconds > 0 {
 		args = append(args, "-timeout", strconv.Itoa(req.Limits.RequestTimeoutSeconds))

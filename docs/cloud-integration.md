@@ -1,223 +1,61 @@
 # ExposureGuard Cloud Integration Contract
 
-This document specifies the process execution contract for running **ExposureGuard Engine** as an isolated worker subprocess inside ExposureGuard Cloud or CI/CD pipelines.
+Cloud spawns Engine locally in a worker. Engine receives a request, executes and exits. Engine has no Cloud persistence, scheduling, retry queue, users, billing or database knowledge. Cloud owns authorization/ownership verification, idempotency, scheduling, retries and persistence.
 
----
+## Single scan vs. batch
 
-## 1. Execution Model
+Use `scan` v1 for manual/public and latency-sensitive UI work:
 
-ExposureGuard Cloud invokes the `exposureguard` binary as an ephemeral worker process:
-
-```bash
-exposureguard scan \
-  --request-json - \
-  --format jsonl
+```sh
+exposureguard scan --request-json - --format jsonl
 ```
 
-### Streams Contract
-- **stdin**: Accepts structured `ScanRequest` JSON.
-- **stdout**: Strictly emits line-delimited JSON (`JSONL` / `NDJSON`) protocol events. Every line is a self-contained JSON object terminated by `\n`. Flushed immediately after every event.
-- **stderr**: Diagnostic logs only. Diagnostic messages are never mixed into stdout.
+Use `batch` v1 for scheduled monitoring/background execution:
 
----
-
-## 2. ScanRequest Schema (stdin)
-
-```json
-{
-  "schema_version": "1",
-  "scan_id": "019488a0-7b2c-7412-a1b2-c3d4e5f67890",
-  "target": "https://example.com",
-  "profile": "standard",
-  "mode": "public",
-  "modules": [
-    "dns",
-    "tls",
-    "http",
-    "crawl",
-    "javascript"
-  ],
-  "limits": {
-    "total_timeout_seconds": 120,
-    "request_timeout_seconds": 10,
-    "dns_timeout_seconds": 5,
-    "tls_handshake_timeout_seconds": 7,
-    "max_redirects": 8,
-    "max_depth": 2,
-    "max_pages": 100,
-    "max_assets": 500,
-    "max_response_bytes": 4194304,
-    "max_total_download_bytes": 52428800,
-    "max_concurrency": 8,
-    "max_per_host_concurrency": 4,
-    "requests_per_second_per_host": 2.0
-  }
-}
+```sh
+exposureguard batch --request-json - --format jsonl
 ```
 
-All fields are validated by the engine upon startup. Clamping ensures safety bounds cannot be bypassed.
+Batch accepts one `BatchRequest` (schema `schemas/protocol-v1/batch-request.schema.json`). Items are the existing `ScanRequest` v1. Each item takes only `profile` and `mode` as ordinary policy inputs; Engine resolves native checks and integrations. Cloud should not set integration overrides. A BatchRequest accepts 16 workloads by default (`max_batch_size`), hard maximum 20. Default scan concurrency is 4, hard scan concurrency is 4. Workload count and active workers are independent. Inline `previous_snapshot` is optional and self-contained (4 MiB per snapshot); Cloud must not pass cross-process filesystem paths.
 
-### Mode Authorization Contract
-- `mode: "public"`: Default safe outside-in scanning. Only native modules and passive discovery (`subfinder`) execute.
-- `mode: "owned"`: Authorizes extended active discovery (`httpx`, `katana`, `nuclei`).
-- **Cloud Obligation**: ExposureGuard Cloud **MUST** complete authoritative proof-of-ownership (e.g. DNS TXT record challenge or HTTP token validation) before dispatching a request with `"mode": "owned"` to any engine worker. The engine worker executes in an unprivileged runtime and cannot independently verify domain ownership.
+## JSONL contract
 
----
+stdin is request JSON. stdout is only JSONL, one flushed JSON object per line. stderr carries diagnostics. Batch `seq` is global and monotonically increasing; item events preserve Scan Protocol v1 `schema_version`/types and add `batch_protocol_version`, `batch_id`, `seq`, `scan_seq`. Each scan starts at `scan_seq=1`, emits exactly one terminal event, and scan events can interleave nondeterministically. `batch.started` is first (`seq=1`); one batch terminal event is last; output after it is forbidden. Event ordering across scans is not deterministic, but each scan's sequence/semantics are.
 
-## 3. Streaming Event Protocol (stdout JSONL)
+Each terminal item has its own `ScanResult`/Snapshot. BatchResult aggregates statuses/counts, start/finish/duration and Engine provenance. It does not merge Snapshots. Item failure is isolated; if all items terminate, normal item failures do not make protocol execution fail. Cloud retries per item. Nonzero process status indicates invalid request, irrecoverable controller/process failure or stdout protocol failure, not vulnerability results.
 
-Every event adheres to the standard `Envelope`:
+SIGINT/SIGTERM stops dequeuing, cancels active item contexts and child process groups, emits item cancellation terminals where stdout remains writable, then `batch.cancelled`. No individual in-batch cancellation in v1.
 
-```json
-{
-  "schema_version": "1",
-  "seq": 1,
-  "timestamp": "2026-10-06T12:00:00.123Z",
-  "scan_id": "019488a0-7b2c-7412-a1b2-c3d4e5f67890",
-  "type": "scan.started",
-  "data": { ... }
-}
-```
+## Limits and security
 
-- `seq`: Monotonically increasing sequence number per scan run.
-- `timestamp`: UTC ISO-8601 (RFC 3339).
+Defaults: max 20 items; 4 active scans; 4 concurrent external processes; 256 MiB aggregate temp budget; 64 MiB aggregate output/event budget. Hard concurrency ceilings are 4. Native concurrency is capped at 4 and per-host request rate at 2/sec. Each item passes existing target/profile/mode/netguard policy. External tools have independent network stacks: production Cloud worker MUST enforce egress isolation for `httpx`, Katana, and Nuclei in addition to Go netguard. Do not rely on batch controls as egress security.
 
-### Lifecycle Sequence:
-1. `scan.started`
-2. `stage.started` (`stage: dns`)
-3. `observation` (`kind: dns_record`)
-4. `asset.discovered` (`kind: hostname`)
-5. `stage.completed` (`stage: dns`)
-6. `stage.started` (`stage: tls`)
-7. `observation` (`kind: tls_certificate`)
-8. `finding` (if certificate expires or mismatch occurs)
-9. `stage.completed` (`stage: tls`)
-10. `stage.started` (`stage: http`)
-11. `observation` (`kind: http_response`, `kind: security_headers`, `kind: cookie_metadata`)
-12. `finding` (e.g. `http.missing_hsts`)
-13. `stage.completed` (`stage: http`)
-14. `stage.started` (`stage: crawl`)
-15. `observation` (`kind: crawled_page`)
-16. `asset.discovered` (`kind: javascript`)
-17. `stage.completed` (`stage: crawl`)
-18. `stage.started` (`stage: javascript`)
-19. `observation` (`kind: source_map_detected`)
-20. `finding` (`rule_id: frontend.public_source_map`)
-21. `stage.completed` (`stage: javascript`)
-22. `change` (if `--previous-snapshot` was supplied)
-23. `scan.summary`
-24. `scan.completed` (or `scan.failed`)
+## TypeScript child-process example
 
----
-
-## 4. Exit Codes
-
-| Exit Code | Meaning | Cloud Action |
-|---|---|---|
-| `0` | Scan executed successfully | Parse snapshot and persist results. Findings do NOT cause non-zero exit code. |
-| `1` | Operational / Network failure | Mark scan as failed or retry if transient. |
-| `2` | Invalid request / bad parameters | Reject job without retry. |
-| `3` | Security policy rejected target (SSRF attempt) | Mark target as rejected by security policy. |
-| `4` | Scan aborted / cancelled | Mark job as cancelled. |
-
----
-
-## 5. Cancellation & Graceful Shutdown
-
-When cancelling a scan job:
-1. ExposureGuard Cloud sends `SIGTERM` or `SIGINT` to the process.
-2. The engine catches the signal, cancels active HTTP/crawl connections, and attempts to emit `scan.failed` with status `cancelled` to stdout before exiting.
-3. If the process does not terminate within the grace period (e.g. 5 seconds), send `SIGKILL`.
-
----
-
-## 6. Versioning & Schema Compatibility
-
-- `protocol_version`: Current value is `"1"`.
-- `snapshot_schema_version`: Current value is `"1"`.
-- Query engine versions dynamically using:
-  ```bash
-  exposureguard version --format json
-  ```
-
----
-
-## 7. Concrete Worker Execution Example (TypeScript / Node.js)
-
-Below is the standard integration pattern for a cloud job dispatcher:
-
-```typescript
+```ts
 import { spawn } from "node:child_process";
-import * as readline from "node:readline";
+import { createInterface } from "node:readline";
 
-interface ScanJob {
-  scanId: string;
-  target: string;
-  profile: "quick" | "standard" | "deep";
-  mode: "public" | "owned";
-}
-
-export async function runEngineWorker(job: ScanJob): Promise<void> {
-  const child = spawn("exposureguard", ["scan", "--request-json", "-", "--format", "jsonl"], {
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  // Stderr: Stream diagnostic logs directly to worker telemetry
-  child.stderr.on("data", (chunk) => {
-    process.stderr.write(`[engine-stderr] ${chunk}`);
-  });
-
-  // Stdout: Parse NDJSON / JSONL event stream line-by-line
-  const rl = readline.createInterface({ input: child.stdout, terminal: false });
-
-  rl.on("line", (line) => {
-    if (!line.trim()) return;
-    try {
-      const event = JSON.parse(line);
-      switch (event.type) {
-        case "asset.discovered":
-          // Ingest discovered asset
-          break;
-        case "finding":
-          // Real-time alert dispatch
-          break;
-        case "change":
-          // Record state drift
-          break;
-        case "scan.completed":
-          console.log(`Scan completed: seq=${event.seq}`);
-          break;
-        case "scan.failed":
-          console.error("Scan failed event received:", event.data);
-          break;
-      }
-    } catch (err) {
-      console.error("Failed to parse event JSON:", line);
+const child = spawn("/opt/exposureguard/bin/exposureguard",
+  ["batch", "--request-json", "-", "--format", "jsonl"],
+  { stdio: ["pipe", "pipe", "pipe"] });
+const byScan = new Map<string, unknown[]>();
+const lines = createInterface({ input: child.stdout });
+lines.on("line", (line) => {
+  const event = JSON.parse(line);
+  if (event.scan_id) {
+    const events = byScan.get(event.scan_id) ?? [];
+    events.push(event);
+    byScan.set(event.scan_id, events);
+    if (["scan.completed", "scan.failed", "scan.cancelled"].includes(event.type)) {
+      finalizeScan(event.scan_id, events); // Cloud persistence/retry policy
     }
-  });
-
-  // Write inbound ScanRequest to stdin
-  const requestPayload = JSON.stringify({
-    schema_version: "1",
-    scan_id: job.scanId,
-    target: job.target,
-    profile: job.profile,
-    mode: job.mode,
-  });
-  child.stdin.write(requestPayload);
-  child.stdin.end();
-
-  // Wait for process termination
-  const exitCode = await new Promise<number>((resolve) => {
-    child.on("close", resolve);
-  });
-
-  if (exitCode !== 0) {
-    throw new Error(`Engine process exited with non-zero code ${exitCode}`);
+  } else if (["batch.completed", "batch.failed", "batch.cancelled"].includes(event.type)) {
+    finalizeBatch(event.batch_id, event.data);
   }
-}
+});
+child.stderr.pipe(process.stderr);
+child.stdin.end(JSON.stringify(batchRequest));
 ```
 
-### Backpressure Handling
-The engine writes directly to `stdout`. If the consumer process consumes events slowly, standard OS pipe backpressure will throttle the engine writer without unbounded in-memory buffering.
-
+Cloud MUST drain stdout and stderr, detect premature child exit/malformed lines, and treat child exit status as protocol/process health. Batch result fixtures for Cloud contract tests live at `testdata/cloud/batch-request.json`, `batch-events.jsonl`, and `batch-result.json`.

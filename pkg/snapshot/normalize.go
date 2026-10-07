@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"sort"
@@ -18,10 +19,27 @@ var volatileKeys = map[string]bool{
 	"captured_at":      true,
 }
 
+// StableID hashes identity fields with a versioned, domain-separated SHA-256 input.
+func StableID(domain string, fields ...string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte("exposureguard:stable-id:v1\x00"))
+	writeIdentityField(h, domain)
+	for _, field := range fields {
+		writeIdentityField(h, field)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func writeIdentityField(h interface{ Write([]byte) (int, error) }, field string) {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(field)))
+	_, _ = h.Write(length[:])
+	_, _ = h.Write([]byte(field))
+}
+
 // ComputeAssetID generates a deterministic full SHA-256 identity for an asset.
 func ComputeAssetID(kind model.AssetKind, value string) string {
-	h := sha256.Sum256([]byte(string(kind) + ":" + strings.TrimSpace(value)))
-	return hex.EncodeToString(h[:])
+	return StableID("asset", string(kind), strings.TrimSpace(value))
 }
 
 // ComputeObservationID generates a deterministic full SHA-256 identity for an observation.
@@ -33,14 +51,12 @@ func ComputeObservationID(kind, subject string, data map[string]any) string {
 		}
 	}
 	encoded, _ := json.Marshal(stableData)
-	h := sha256.Sum256([]byte(kind + ":" + subject + ":" + string(encoded)))
-	return hex.EncodeToString(h[:])
+	return StableID("observation", kind, subject, string(encoded))
 }
 
 // ComputeFindingID generates a deterministic full SHA-256 identity for a finding.
 func ComputeFindingID(ruleID, asset, fingerprint string) string {
-	h := sha256.Sum256([]byte(ruleID + ":" + asset + ":" + fingerprint))
-	return hex.EncodeToString(h[:])
+	return StableID("finding", ruleID, asset, fingerprint)
 }
 
 // SortAssets sorts an asset slice deterministically.
@@ -69,21 +85,28 @@ func SortObservations(obs []model.Observation) {
 	})
 }
 
-var severityWeights = map[model.Severity]int{
-	model.SeverityCritical: 5,
-	model.SeverityHigh:     4,
-	model.SeverityMedium:   3,
-	model.SeverityLow:      2,
-	model.SeverityInfo:     1,
+func severityRank(severity model.Severity) int {
+	switch severity {
+	case model.SeverityCritical:
+		return 5
+	case model.SeverityHigh:
+		return 4
+	case model.SeverityMedium:
+		return 3
+	case model.SeverityLow:
+		return 2
+	case model.SeverityInfo:
+		return 1
+	default:
+		return 0
+	}
 }
 
-// SortFindings sorts findings deterministically: highest severity first, then rule, then asset.
+// SortFindings sorts findings deterministically.
 func SortFindings(findings []model.Finding) {
 	sort.Slice(findings, func(i, j int) bool {
-		wI := severityWeights[findings[i].Severity]
-		wJ := severityWeights[findings[j].Severity]
-		if wI != wJ {
-			return wI > wJ // higher severity first
+		if findings[i].Severity != findings[j].Severity {
+			return severityRank(findings[i].Severity) > severityRank(findings[j].Severity)
 		}
 		if findings[i].RuleID != findings[j].RuleID {
 			return findings[i].RuleID < findings[j].RuleID

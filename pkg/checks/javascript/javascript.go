@@ -2,7 +2,6 @@ package javascript
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 	"github.com/exposureguard/exposureguard/pkg/static"
 	"github.com/exposureguard/exposureguard/pkg/target"
 )
@@ -75,7 +75,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 
 		// Record endpoint candidates as discovered assets
 		for _, ep := range analysis.EndpointCandidates {
-			epID := fmt.Sprintf("%x", sha256.Sum256([]byte("endpoint:"+ep.Value+":"+jsAsset.Value)))
+			epID := snapshot.StableID("asset", string(ep.Kind), ep.Value, jsAsset.Value)
 			ep.ID = epID
 			result.Assets = append(result.Assets, ep)
 		}
@@ -131,7 +131,7 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 			}
 
 			// Valid real source map detected!
-			mapID := fmt.Sprintf("%x", sha256.Sum256([]byte("sourcemap:"+mapURL)))
+			mapID := snapshot.ComputeAssetID(model.AssetKindSourceMap, mapURL)
 			result.Assets = append(result.Assets, model.Asset{
 				ID:            mapID,
 				Kind:          model.AssetKindSourceMap,
@@ -145,23 +145,16 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, targetModel mo
 				},
 			})
 
-			obsID := fmt.Sprintf("%x", sha256.Sum256([]byte("obs:sourcemap:"+mapURL)))
+			obsData := map[string]any{
+				"url": mapURL, "js_source": jsAsset.Value, "source_count": meta.SourceCount,
+				"has_content": meta.HasContent, "size_bytes": meta.ContentSize, "fingerprint": meta.Fingerprint,
+			}
+			obsID := snapshot.ComputeObservationID("source_map_detected", mapURL, obsData)
 			result.Observations = append(result.Observations, model.Observation{
-				ID:      obsID,
-				Kind:    "source_map_detected",
-				Scope:   "frontend",
-				Subject: mapURL,
-				Data: map[string]any{
-					"url":          mapURL,
-					"js_source":    jsAsset.Value,
-					"source_count": meta.SourceCount,
-					"has_content":  meta.HasContent,
-					"size_bytes":   meta.ContentSize,
-					"fingerprint":  meta.Fingerprint,
-				},
+				ID: obsID, Kind: "source_map_detected", Scope: "frontend", Subject: mapURL, Data: obsData,
 			})
 
-			findingID := fmt.Sprintf("%x", sha256.Sum256([]byte("finding:frontend.public_source_map:"+mapURL)))
+			findingID := snapshot.ComputeFindingID("frontend.public_source_map", mapURL, "")
 			result.Findings = append(result.Findings, model.Finding{
 				ID:          findingID,
 				CheckID:     c.ID(),

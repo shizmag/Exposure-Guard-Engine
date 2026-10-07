@@ -157,7 +157,9 @@ func resolveDefaultTemplatesPath() string {
 	candidates := []string{
 		os.Getenv("EXPOSUREGUARD_NUCLEI_TEMPLATES"),
 		os.Getenv("NUCLEI_TEMPLATES_PATH"),
+		filepath.Join(integration.DefaultExposureGuardHome(), "share", "nuclei-templates"),
 		filepath.Join(integration.DefaultExposureGuardHome(), "tools", "nuclei", "templates"),
+		"/opt/exposureguard/share/nuclei-templates",
 		"/opt/exposureguard/nuclei-templates",
 	}
 

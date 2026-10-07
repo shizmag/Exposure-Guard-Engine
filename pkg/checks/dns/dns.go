@@ -2,7 +2,6 @@ package dns
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net"
 	"sort"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 )
 
 // Check implements the DNS records inspection module.
@@ -120,23 +120,16 @@ func (c *Check) Run(ctx context.Context, env *checks.Environment, target model.T
 
 	// Build Observations
 	for _, rec := range records {
-		obsID := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("dns:%s:%s:%s", rec.Type, rec.Name, rec.Value))))
+		data := map[string]any{"record_type": rec.Type, "name": rec.Name, "value": rec.Value}
+		obsID := snapshot.ComputeObservationID("dns_record", rec.Name, data)
 		result.Observations = append(result.Observations, model.Observation{
-			ID:      obsID,
-			Kind:    "dns_record",
-			Scope:   "dns",
-			Subject: rec.Name,
-			Data: map[string]any{
-				"record_type": rec.Type,
-				"name":        rec.Name,
-				"value":       rec.Value,
-			},
+			ID: obsID, Kind: "dns_record", Scope: "dns", Subject: rec.Name, Data: data,
 		})
 	}
 
 	// Build Assets for discovered hosts
 	for h := range discoveredHosts {
-		assetID := fmt.Sprintf("%x", sha256.Sum256([]byte("hostname:"+h)))
+		assetID := snapshot.ComputeAssetID(model.AssetKindHostname, h)
 		result.Assets = append(result.Assets, model.Asset{
 			ID:            assetID,
 			Kind:          model.AssetKindHostname,

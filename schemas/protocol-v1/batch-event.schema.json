@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exposureguard.dev/schemas/protocol-v1/batch-event.schema.json",
+  "title": "BatchProtocolEvent",
+  "description": "One streaming JSONL event from Batch Protocol v1.",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["batch_protocol_version", "seq", "timestamp", "type", "batch_id", "data"],
+      "properties": {
+        "batch_protocol_version": { "type": "string", "const": "1" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "enum": ["batch.started", "batch.completed", "batch.failed", "batch.cancelled"] },
+        "batch_id": { "type": "string", "format": "uuid" },
+        "data": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "required": ["batch_protocol_version", "batch_id", "seq", "scan_seq", "timestamp", "scan_id", "type", "data"],
+      "properties": {
+        "batch_protocol_version": { "type": "string", "const": "1" },
+        "seq": { "type": "integer", "minimum": 1, "description": "Global batch event sequence" },
+        "batch_id": { "type": "string", "format": "uuid" },
+        "scan_seq": { "type": "integer", "minimum": 1, "description": "Independent per-scan event sequence" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "scan_id": { "type": "string", "format": "uuid" },
+        "type": { "type": "string", "enum": ["scan.started", "stage.started", "stage.completed", "asset.discovered", "observation", "finding", "change", "warning", "scan.summary", "scan.completed", "scan.failed", "scan.cancelled"] },
+        "data": {}
+      },
+      "additionalProperties": true
+    }
+  ]
+}

@@ -1,158 +1,30 @@
-# ExposureGuard Deployment & Egress Security Specification
+# ExposureGuard Deployment & Egress Security
 
-## 1. Threat Boundary & Network Architecture
+ExposureGuard Engine is an ephemeral stateless execution unit. Cloud invokes a local subprocess; it does not require an Engine service. Cloud owns authorization, persistence, scheduling and retries.
 
-ExposureGuard Engine executes outside-in security scans against untrusted, potentially adversarial targets. This document defines the exact network threat model and production requirements for deploying the engine standalone or as an ExposureGuard Cloud worker.
+## Egress boundary
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│ Worker Host (Cloud VM / Bare Metal)                                   │
-│                                                                        │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │ ExposureGuard Worker Container                                   │  │
-│  │                                                                  │  │
-│  │   ┌─────────────────────┐       ┌────────────────────────────┐   │  │
-│  │   │ Native Go Engine    │       │ External Subprocesses      │   │  │
-│  │   │ (DNS/TLS/HTTP/JS)   │       │ (httpx, katana, nuclei)    │   │  │
-│  │   └──────────┬──────────┘       └─────────────┬──────────────┘   │  │
-│  │              │                                │                  │  │
-│  │              ▼                                ▼                  │  │
-│  │     netguard.SafeDialer                OS Socket Layer           │  │
-│  │    (blocks private/metadata)     (BYPASSES Go netguard!)         │  │
-│  │              │                                │                  │  │
-│  │              └───────────────┬────────────────┘                  │  │
-│  │                              ▼                                   │  │
-│  │                     Container eth0 (veth)                        │  │
-│  └──────────────────────────────┬───────────────────────────────────┘  │
-│                                 ▼                                      │
-│                  Linux Host Network Namespace Filter                    │
-│            [iptables / nftables egress enforcement]                    │
-│                 │                                   │                  │
-│                 ▼                                   ▼                  │
-│          DROP: RFC1918                       ALLOW: Public Internet    │
-│          DROP: 169.254.0.0/16                       (80, 443)          │
-│          DROP: Loopback / CGNAT                                        │
-│          DROP: Link-Local IPv6                                         │
-└────────────────────────────────────────────────────────────────────────┘
+Native Go clients use netguard, rejecting loopback, private, link-local, multicast, unspecified, reserved and metadata destinations by default. `httpx`, Katana and Nuclei use independent network stacks and bypass Go netguard. Subfinder uses upstream passive sources. Batch does not change these boundaries.
+
+Production Cloud worker MUST enforce host/container egress isolation for all external processes, including DNS and IPv4/IPv6 private/metadata networks. Apply `deploy/security/iptables.example.sh` or nftables equivalent. Network policy should also restrict/monitor DNS and prevent metadata service access. `--allow-private` is for controlled local tests only; never set it in production.
+
+## Immutable distribution and runtime
+
+Official runtime image uses `/opt/exposureguard` as `EXPOSUREGUARD_HOME`, with core and pinned tool binaries in `bin/`, templates in `share/nuclei-templates/`, curated rules under `profiles/nuclei/v1/`, and `distribution-manifest.json`. Build-time acquisition verifies locked SHA-256 hashes. Runtime performs no dependency/template downloads or updates. Pin Cloud deployment to an immutable image digest (tags `0.1.0`, `0.1`, `sha-<git>` are discovery aliases; `latest` is not a production pin).
+
+Host installation uses `install.sh --with-tools`, pinned `tools.lock.json`, and writes a distribution manifest. Run `exposureguard doctor` to verify tools, profiles, permissions and distribution fingerprint. `exposureguard version --json` reports protocol, Snapshot, identity, toolchain, ruleset, distribution-manifest and core-binary fingerprints. Doctor never updates dependencies.
+
+## Container controls
+
+Run as non-root UID 10001. Keep filesystem writable only for configured temp/work directories; provide adequate temp budget for scan and Batch output. Allocate CPU/memory according to batch concurrency; Batch defaults to at most 4 active scans, 4 external children, 256 MiB temporary data, and 64 MiB event output. Each individual scan caps native HTTP/crawler concurrency at 2 and rate at 1 request/second/host. External process slots are shared globally and never exceed the configured limit. Batch limits do not replace cgroups, egress rules or process monitoring. On SIGTERM, allow a bounded grace period before SIGKILL; Engine terminates managed child process groups and removes temporary scan work.
+
+Cloud Dockerfiles may consume Engine distribution without starting a service:
+
+```Dockerfile
+ARG ENGINE_IMAGE
+FROM ${ENGINE_IMAGE} AS engine
+FROM node-runtime
+COPY --from=engine /opt/exposureguard /opt/exposureguard
 ```
 
----
-
-## 2. The External Process Network Reality
-
-A critical finding of our security audit is that **Go-level network guards cannot protect subprocesses**:
-
-1. **Native Engine**: The native Go code strictly routes HTTP connections through `pkg/netguard.SafeDialer`. Every resolved IP is validated against `DefaultNetworkPolicy`, and connections are dialed directly to the validated IP literal to prevent DNS rebinding.
-2. **External Subprocesses**: Tools like `httpx`, `katana`, and `nuclei` run as separate OS child processes (`os/exec`). They initialize their own Go `net.Dialer` and DNS resolvers. **They do not route traffic through ExposureGuard's `SafeDialer`.**
-3. **Docker Default Network**: In default Docker bridge networking, outbound packets are routed through the Docker bridge gateway and forwarded via the host's default route. Standard Docker configurations **do not** drop traffic to link-local addresses (`169.254.0.0/16`) or RFC1918 private subnets.
-
-> **Warning**: A standalone Docker container running `--mode owned` with external tools CANNOT guarantee cloud metadata isolation on its own. Network-level egress firewall rules are MANDATORY in production.
-
----
-
-## 3. Mandatory Cloud Deployment Requirements
-
-Before connecting ExposureGuard Engine workers to ExposureGuard Cloud, operators and infrastructure automation MUST implement three defense layers:
-
-### Layer 1: Cloud Provider IMDSv2 Hop-Limit (Infrastructure)
-On AWS EC2, GCP, and Azure, configure instance metadata service to enforce IMDSv2 and set the IP packet hop limit to 1. This prevents container bridge networks (which decrement TTL by 1) from reaching instance metadata:
-
-```bash
-# AWS CLI example: Enforce IMDSv2 with hop limit = 1
-aws ec2 modify-instance-metadata-options \
-    --instance-id i-xxxxxxxxxxxxxxxxx \
-    --http-tokens required \
-    --http-put-response-hop-limit 1 \
-    --http-endpoint enabled
-```
-
-### Layer 2: Container Egress Firewall (Host Network)
-Production worker hosts must enforce egress filtering for all worker container network interfaces (`br-exposureguard` or `docker0`).
-
-#### Reference `nftables` Configuration (`/etc/nftables/exposureguard.nft`):
-```nftables
-table inet exposureguard_filter {
-    chain egress_filter {
-        type filter hook forward priority 0; policy drop;
-
-        # Allow established and related connections
-        ct state established,related accept
-
-        # Drop link-local and cloud metadata (IPv4 & IPv6)
-        ip daddr 169.254.0.0/16 drop
-        ip6 daddr fe80::/10 drop
-
-        # Drop RFC1918 private subnets
-        ip daddr 10.0.0.0/8 drop
-        ip daddr 172.16.0.0/12 drop
-        ip daddr 192.168.0.0/16 drop
-        ip6 daddr fc00::/7 drop
-
-        # Drop CGNAT and loopback
-        ip daddr 100.64.0.0/10 drop
-        ip daddr 127.0.0.0/8 drop
-        ip6 daddr ::1/128 drop
-
-        # Allow outbound DNS to trusted recursor only (e.g. 1.1.1.1, 8.8.8.8)
-        udp dport 53 ip daddr { 1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4 } accept
-        tcp dport 53 ip daddr { 1.1.1.1, 1.0.0.1, 8.8.8.8, 8.8.4.4 } accept
-
-        # Allow public outbound HTTP/HTTPS
-        tcp dport { 80, 443 } accept
-    }
-}
-```
-
-#### Equivalent `iptables` Commands:
-```bash
-# Create dedicated egress isolation chain
-iptables -N EXPOSUREGUARD_EGRESS
-
-# Block Cloud Metadata
-iptables -A EXPOSUREGUARD_EGRESS -d 169.254.0.0/16 -j DROP
-
-# Block RFC1918 Private Ranges
-iptables -A EXPOSUREGUARD_EGRESS -d 10.0.0.0/8 -j DROP
-iptables -A EXPOSUREGUARD_EGRESS -d 172.16.0.0/12 -j DROP
-iptables -A EXPOSUREGUARD_EGRESS -d 192.168.0.0/16 -j DROP
-
-# Block CGNAT and Loopback
-iptables -A EXPOSUREGUARD_EGRESS -d 100.64.0.0/10 -j DROP
-iptables -A EXPOSUREGUARD_EGRESS -d 127.0.0.0/8 -j DROP
-
-# Allow established/related traffic
-iptables -A EXPOSUREGUARD_EGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# Allow public web traffic
-iptables -A EXPOSUREGUARD_EGRESS -p tcp -m multiport --dports 80,443 -j ACCEPT
-iptables -A EXPOSUREGUARD_EGRESS -p udp --dport 53 -j ACCEPT
-
-# Default policy: drop anything else
-iptables -A EXPOSUREGUARD_EGRESS -j DROP
-
-# Apply chain to docker bridge interface
-iptables -I FORWARD -i docker0 -j EXPOSUREGUARD_EGRESS
-```
-
-### Layer 3: Unprivileged Execution & Resource Constraints
-The engine worker container must run with non-root user and dropped capabilities:
-```bash
-docker run --rm \
-    --cap-drop=ALL \
-    --read-only \
-    --tmpfs /tmp/exposureguard:rw,noexec,nosuid,size=256m \
-    --memory=2g \
-    --cpus=2.0 \
-    --pids-limit=100 \
-    --security-opt=no-new-privileges:true \
-    ghcr.io/exposureguard/exposureguard:<VERSION> \
-    scan https://example.com --format jsonl
-```
-
----
-
-## 4. Controlled Testing with `--allow-private`
-
-For controlled local tests, developer workstations, and test fixtures:
-* Passing `--allow-private` or setting `EXPOSUREGUARD_ALLOW_PRIVATE=1` allows scanning loopback (`127.0.0.1`, `localhost`) and private RFC1918 addresses.
-* **Cloud metadata (`169.254.0.0/16`, `metadata.google.internal`, `instance-data`) remains strictly blocked even when `--allow-private` is active.**
+Cloud worker still calls `/opt/exposureguard/bin/exposureguard batch ...` with local `spawn()` and streams stdout/stderr.

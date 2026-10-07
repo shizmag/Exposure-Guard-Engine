@@ -2,14 +2,19 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/exposureguard/exposureguard/internal/buildinfo"
 	"github.com/exposureguard/exposureguard/pkg/checks"
 	dnscheck "github.com/exposureguard/exposureguard/pkg/checks/dns"
 	httpcheck "github.com/exposureguard/exposureguard/pkg/checks/http"
@@ -26,12 +31,26 @@ import (
 	"github.com/exposureguard/exposureguard/pkg/target"
 )
 
+func newScanID() string {
+	var bytes [16]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return fmt.Sprintf("scan-%d", time.Now().UnixNano())
+	}
+	bytes[6] = bytes[6]&0x0f | 0x40
+	bytes[8] = bytes[8]&0x3f | 0x80
+	hexID := hex.EncodeToString(bytes[:])
+	return hexID[:8] + "-" + hexID[8:12] + "-" + hexID[12:16] + "-" + hexID[16:20] + "-" + hexID[20:]
+}
+
 // Engine orchestrates the outside-in scanning pipeline.
 type Engine struct {
-	env      *checks.Environment
-	events   *protocol.Encoder
-	registry *integration.Registry
-	runner   integration.Runner
+	env            *checks.Environment
+	events         *protocol.Encoder
+	registry       *integration.Registry
+	runner         integration.Runner
+	tempRoot       string
+	maxConcurrency int
+	maxRate        float64
 }
 
 // NewEngine creates a new Engine instance using default registry and OS runner.
@@ -47,18 +66,27 @@ func NewEngineWithIntegrations(env *checks.Environment, events *protocol.Encoder
 	if runner == nil {
 		runner = integration.NewOSRunner("")
 	}
+	maxConcurrency := 0
+	if value := os.Getenv("EXPOSUREGUARD_MAX_CONCURRENCY"); value != "" {
+		maxConcurrency, _ = strconv.Atoi(value)
+	}
+	maxRate := 0.0
+	if value := os.Getenv("EXPOSUREGUARD_MAX_RATE_LIMIT"); value != "" {
+		maxRate, _ = strconv.ParseFloat(value, 64)
+	}
 	return &Engine{
-		env:      env,
-		events:   events,
-		registry: reg,
-		runner:   runner,
+		env: env, events: events, registry: reg, runner: runner,
+		maxConcurrency: maxConcurrency, maxRate: maxRate,
 	}
 }
 
 // Options passes runtime inputs to the engine execution.
 type Options struct {
-	Request          model.ScanRequest
-	PreviousSnapshot *model.Snapshot
+	Request                 model.ScanRequest
+	PreviousSnapshot        *model.Snapshot
+	IncludeResultInTerminal bool
+	MaxSnapshotBytes        int64
+	TempRoot                string
 }
 
 // Plan computes the preview execution plan for a scan request without performing any network traffic.
@@ -126,10 +154,29 @@ func (e *Engine) Plan(req model.ScanRequest) (*model.ScanPlan, error) {
 func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, error) {
 	start := time.Now().UTC()
 	req := opts.Request
+	runEngine := *e
+	runEngine.tempRoot = opts.TempRoot
+	e = &runEngine
 	req.Limits.Clamp()
+	if req.ScanID == "" {
+		req.ScanID = newScanID()
+	}
+	if req.SchemaVersion == "" {
+		req.SchemaVersion = buildinfo.ProtocolVersion
+	}
+	if e.maxConcurrency > 0 {
+		req.Limits.MaxConcurrency = min(req.Limits.MaxConcurrency, e.maxConcurrency)
+	}
+	if e.maxRate > 0 {
+		req.Limits.RequestsPerSecondPerHost = min(req.Limits.RequestsPerSecondPerHost, e.maxRate)
+	}
 
 	if req.ScanID != "" {
-		scanTempDir := filepath.Clean(filepath.Join(os.TempDir(), "exposureguard", req.ScanID))
+		tempRoot := e.tempRoot
+		if tempRoot == "" {
+			tempRoot = filepath.Join(os.TempDir(), "exposureguard")
+		}
+		scanTempDir := filepath.Clean(filepath.Join(tempRoot, req.ScanID))
 		defer func() {
 			_ = os.RemoveAll(scanTempDir)
 		}()
@@ -475,26 +522,52 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		status = model.ScanStatusPartial
 	}
 
-	result := &model.ScanResult{
-		Status:      status,
-		ScanID:      req.ScanID,
-		Target:      tgt,
-		Snapshot:    snap,
-		Changes:     changes,
-		Summary:     stats,
-		StartedAt:   start,
-		CompletedAt: completedAt,
-		Errors:      errorsList,
+	if opts.MaxSnapshotBytes > 0 {
+		if encoded, err := json.Marshal(snap); err != nil || int64(len(encoded)) > opts.MaxSnapshotBytes {
+			errorsList = append(errorsList, "Snapshot exceeds batch storage budget")
+			status = model.ScanStatusFailed
+		}
+	}
+	result := resultForTerminal(status, req.ScanID, tgt, snap, changes, stats, start, completedAt, errorsList)
+	if opts.IncludeResultInTerminal {
+		if encoded, err := json.Marshal(result); err != nil || int64(len(encoded)) > opts.MaxSnapshotBytes {
+			errorsList = append(errorsList, "ScanResult exceeds batch output budget")
+			status = model.ScanStatusFailed
+			result = resultForTerminal(status, req.ScanID, tgt, snap, changes, stats, start, completedAt, errorsList)
+		}
 	}
 
 	e.emit(protocol.EventScanSummary, stats)
-	if status == model.ScanStatusFailed {
-		e.emit(protocol.EventScanFailed, map[string]any{"errors": errorsList})
+	if e.events != nil {
+		if err := e.events.Error(); err != nil {
+			return nil, fmt.Errorf("writing scan event stream failed: %w", err)
+		}
+	}
+	terminalData := map[string]any{"status": status, "findings": len(snap.Findings)}
+	if opts.IncludeResultInTerminal {
+		terminalData["result"] = result
+	}
+	if ctx.Err() != nil {
+		terminalData["status"] = "cancelled"
+		terminalData["errors"] = errorsList
+		e.emit(protocol.EventScanCancelled, terminalData)
+	} else if status == model.ScanStatusFailed {
+		terminalData["errors"] = errorsList
+		e.emit(protocol.EventScanFailed, terminalData)
 	} else {
-		e.emit(protocol.EventScanCompleted, map[string]any{"status": status, "findings": len(snap.Findings)})
+		e.emit(protocol.EventScanCompleted, terminalData)
+	}
+	if e.events != nil {
+		if err := e.events.Error(); err != nil {
+			return nil, fmt.Errorf("writing scan terminal event failed: %w", err)
+		}
 	}
 
 	return result, nil
+}
+
+func resultForTerminal(status model.ScanStatus, scanID string, tgt model.Target, snap model.Snapshot, changes []model.Change, stats model.ScanStats, start, completedAt time.Time, errors []string) *model.ScanResult {
+	return &model.ScanResult{Status: status, ScanID: scanID, Target: tgt, Snapshot: snap, Changes: changes, Summary: stats, StartedAt: start, CompletedAt: completedAt, Errors: errors}
 }
 
 func formatSupportedModes(modes []model.ScanMode) string {
@@ -586,6 +659,9 @@ func (e *Engine) runIntegration(
 	addFindings func([]model.Finding),
 ) error {
 	id := adapter.ID()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	// 1. Probe installation
 	inst, err := adapter.Detect(ctx, e.runner)
@@ -598,7 +674,14 @@ func (e *Engine) runIntegration(
 	}
 
 	// 2. Prepare isolated working directory
-	workDir := filepath.Join(os.TempDir(), "exposureguard", req.ScanID, id)
+	baseTempDir := filepath.Join(os.TempDir(), "exposureguard")
+	if home := integration.DefaultExposureGuardHome(); home != "" {
+		baseTempDir = filepath.Join(home, "tmp")
+	}
+	if e.tempRoot != "" {
+		baseTempDir = e.tempRoot
+	}
+	workDir := filepath.Join(baseTempDir, req.ScanID, id)
 	if err := os.MkdirAll(workDir, 0o700); err != nil {
 		return fmt.Errorf("creating work directory failed: %w", err)
 	}
@@ -624,6 +707,9 @@ func (e *Engine) runIntegration(
 
 	// 3. Execute
 	stageKey := "integration." + id
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	e.emit(protocol.EventStageStarted, map[string]string{"stage": stageKey})
 	sStart := time.Now()
 
