@@ -272,6 +272,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		stats           model.ScanStats
 		stageDurations  = make(map[string]time.Duration)
 		candidateHosts  []string
+		coverageStages  = make(map[string]struct{})
 	)
 
 	// Helper to track and emit
@@ -293,6 +294,25 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			e.emit(protocol.EventFinding, f)
 		}
 	}
+	addAssetsFrom := func(stage string, assets []model.Asset) {
+		for i := range assets {
+			assets[i].Coverage = append(assets[i].Coverage, stage)
+		}
+		addAssets(assets)
+	}
+	addObservationsFrom := func(stage string, observations []model.Observation) {
+		for i := range observations {
+			observations[i].Coverage = append(observations[i].Coverage, stage)
+		}
+		addObservations(observations)
+	}
+	addFindingsFrom := func(stage string, findings []model.Finding) {
+		for i := range findings {
+			findings[i].Coverage = append(findings[i].Coverage, stage)
+		}
+		addFindings(findings)
+	}
+	markCoverage := func(stage string) { coverageStages[stage] = struct{}{} }
 
 	// -----------------------------------------------------------------
 	// Stage 1: DNS
@@ -306,8 +326,9 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		if err != nil {
 			errorsList = append(errorsList, fmt.Sprintf("dns check failed: %v", err))
 		} else {
-			addAssets(res.Assets)
-			addObservations(res.Observations)
+			addAssetsFrom("dns", res.Assets)
+			addObservationsFrom("dns", res.Observations)
+			markCoverage("dns")
 		}
 		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "dns"})
 	}
@@ -324,8 +345,9 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		if err != nil {
 			errorsList = append(errorsList, fmt.Sprintf("tls check failed: %v", err))
 		} else {
-			addObservations(res.Observations)
-			addFindings(res.Findings)
+			addObservationsFrom("tls", res.Observations)
+			addFindingsFrom("tls", res.Findings)
+			markCoverage("tls")
 		}
 		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "tls"})
 	}
@@ -342,9 +364,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		if err != nil {
 			errorsList = append(errorsList, fmt.Sprintf("http check failed: %v", err))
 		} else {
-			addAssets(res.Assets)
-			addObservations(res.Observations)
-			addFindings(res.Findings)
+			addAssetsFrom("http", res.Assets)
+			addObservationsFrom("http", res.Observations)
+			addFindingsFrom("http", res.Findings)
+			markCoverage("http")
 		}
 		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "http"})
 	}
@@ -361,14 +384,17 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			err := e.runIntegration(ctx, subAdapter, req, tgt, nil, &stats, stageDurations,
 				func(as []model.Asset) {
 					subAssets = append(subAssets, as...)
-					addAssets(as)
+					addAssetsFrom("integration.subfinder", as)
 				},
-				addObservations,
-				addFindings,
+				func(observations []model.Observation) { addObservationsFrom("integration.subfinder", observations) },
+				func(findings []model.Finding) { addFindingsFrom("integration.subfinder", findings) },
 			)
 			if err != nil {
 				errorsList = append(errorsList, fmt.Sprintf("subfinder integration failed: %v", err))
 			} else {
+				if slices.Contains(stats.IntegrationsRan, "subfinder") {
+					markCoverage("integration.subfinder")
+				}
 				// Validate scope and network safety for discovered candidates
 				for _, a := range subAssets {
 					if a.Kind == model.AssetKindHostname {
@@ -394,12 +420,14 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 				probeTargets = []string{tgt.Host}
 			}
 			err := e.runIntegration(ctx, httpxAdapter, req, tgt, probeTargets, &stats, stageDurations,
-				addAssets,
-				addObservations,
-				addFindings,
+				func(assets []model.Asset) { addAssetsFrom("integration.httpx", assets) },
+				func(observations []model.Observation) { addObservationsFrom("integration.httpx", observations) },
+				func(findings []model.Finding) { addFindingsFrom("integration.httpx", findings) },
 			)
 			if err != nil {
 				errorsList = append(errorsList, fmt.Sprintf("httpx integration failed: %v", err))
+			} else if slices.Contains(stats.IntegrationsRan, "httpx") {
+				markCoverage("integration.httpx")
 			}
 		}
 	}
@@ -408,24 +436,28 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	// Stage 4: Crawling (Native or Katana)
 	// -----------------------------------------------------------------
 	var discoveredJSAssets []model.Asset
+	javascriptDiscoveryComplete := false
 
 	if e.shouldRunIntegration("katana", req) && ctx.Err() == nil {
 		// Deep owned crawling via Katana
 		if katanaAdapter, ok := e.registry.Get("katana"); ok {
 			err := e.runIntegration(ctx, katanaAdapter, req, tgt, nil, &stats, stageDurations,
 				func(as []model.Asset) {
-					addAssets(as)
+					addAssetsFrom("integration.katana", as)
 					for _, a := range as {
 						if a.Kind == model.AssetKindJavaScript {
 							discoveredJSAssets = append(discoveredJSAssets, a)
 						}
 					}
 				},
-				addObservations,
-				addFindings,
+				func(observations []model.Observation) { addObservationsFrom("integration.katana", observations) },
+				func(findings []model.Finding) { addFindingsFrom("integration.katana", findings) },
 			)
 			if err != nil {
 				errorsList = append(errorsList, fmt.Sprintf("katana crawler failed: %v", err))
+			} else if slices.Contains(stats.IntegrationsRan, "katana") {
+				markCoverage("integration.katana")
+				javascriptDiscoveryComplete = true
 			}
 		}
 	} else if isModuleEnabled("crawl", req.Modules, req.DisableModules) && ctx.Err() == nil {
@@ -440,8 +472,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		} else {
 			stats.PagesCrawled = len(crawlRes.PagesVisited)
 			stats.BytesDownloaded += crawlRes.TotalBytes
-			addAssets(crawlRes.DiscoveredAssets)
-			addObservations(crawlRes.Observations)
+			addAssetsFrom("crawl", crawlRes.DiscoveredAssets)
+			addObservationsFrom("crawl", crawlRes.Observations)
+			markCoverage("crawl")
+			javascriptDiscoveryComplete = true
 
 			for _, a := range crawlRes.DiscoveredAssets {
 				if a.Kind == model.AssetKindJavaScript {
@@ -465,9 +499,10 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			errorsList = append(errorsList, fmt.Sprintf("javascript inspection failed: %v", err))
 		} else {
 			stats.JSFilesAnalyzed = len(discoveredJSAssets)
-			addAssets(res.Assets)
-			addObservations(res.Observations)
-			addFindings(res.Findings)
+			addAssetsFrom("javascript", res.Assets)
+			addObservationsFrom("javascript", res.Observations)
+			addFindingsFrom("javascript", res.Findings)
+			markCoverage("javascript")
 
 			for _, a := range res.Assets {
 				if a.Kind == model.AssetKindSourceMap {
@@ -476,6 +511,14 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			}
 		}
 		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript"})
+	} else if isModuleEnabled("javascript", req.Modules, req.DisableModules) && ctx.Err() == nil && javascriptDiscoveryComplete && len(discoveredJSAssets) == 0 {
+		// A successful discovery stage with no JavaScript inputs is complete
+		// negative coverage for source-map analysis; quick profiles do not run
+		// discovery and therefore cannot resolve JavaScript findings this way.
+		e.emit(protocol.EventStageStarted, map[string]string{"stage": "javascript"})
+		stageDurations["javascript"] = 0
+		markCoverage("javascript")
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript", "status": "no_candidates"})
 	}
 
 	// -----------------------------------------------------------------
@@ -484,12 +527,14 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	if e.shouldRunIntegration("nuclei", req) && ctx.Err() == nil {
 		if nucleiAdapter, ok := e.registry.Get("nuclei"); ok {
 			err := e.runIntegration(ctx, nucleiAdapter, req, tgt, nil, &stats, stageDurations,
-				addAssets,
-				addObservations,
-				addFindings,
+				func(assets []model.Asset) { addAssetsFrom("integration.nuclei", assets) },
+				func(observations []model.Observation) { addObservationsFrom("integration.nuclei", observations) },
+				func(findings []model.Finding) { addFindingsFrom("integration.nuclei", findings) },
 			)
 			if err != nil {
 				errorsList = append(errorsList, fmt.Sprintf("nuclei integration failed: %v", err))
+			} else if slices.Contains(stats.IntegrationsRan, "nuclei") {
+				markCoverage("integration.nuclei")
 			}
 		}
 	}
@@ -498,7 +543,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 	// Finalization: Snapshot & Diff
 	// -----------------------------------------------------------------
 	completedAt := time.Now().UTC()
-	snap := snapshot.Build(tgt, allAssets, allObservations, allFindings, completedAt)
+	coverage := make([]string, 0, len(coverageStages))
+	for stage := range coverageStages {
+		coverage = append(coverage, stage)
+	}
+	snap := snapshot.BuildWithCoverage(tgt, allAssets, allObservations, allFindings, completedAt, coverage)
 
 	var changes []model.Change
 	if opts.PreviousSnapshot != nil {

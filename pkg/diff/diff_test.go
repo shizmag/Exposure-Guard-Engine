@@ -247,3 +247,41 @@ func TestDiffNilSafety(t *testing.T) {
 	assert.Nil(t, Compare(&model.Snapshot{}, nil))
 	assert.Nil(t, Compare(nil, &model.Snapshot{}))
 }
+
+func TestCoverageAwareMixedProfileLifecycle(t *testing.T) {
+	deep := &model.Snapshot{
+		SchemaVersion: "2",
+		Coverage:      []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder", "integration.httpx", "integration.katana", "integration.nuclei"},
+		Assets:        []model.Asset{{ID: "map-x", Kind: model.AssetKindSourceMap, Value: "https://example.com/app.js.map", Coverage: []string{"javascript"}}},
+		Findings:      []model.Finding{{ID: "finding-x", CheckID: "integration.nuclei", RuleID: "nuclei.exposure", Asset: "example.com", Severity: model.SeverityHigh, Coverage: []string{"integration.nuclei"}}},
+	}
+	quick := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}}
+	standard := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder"}}
+	quickAgain := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}}
+
+	assert.Empty(t, Compare(deep, quick), "quick lacks JavaScript and nuclei coverage, so it cannot report their disappearance")
+	assert.Empty(t, Compare(quick, standard), "coverage changes alone cannot claim a previously missing asset disappeared or appeared")
+	assert.Empty(t, Compare(standard, quickAgain), "a second quick scan still cannot resolve findings from uncovered stages")
+	newlyDiscovered := Compare(quick, deep)
+	assert.ElementsMatch(t, []string{"finding.appeared", "frontend.source_map_appeared"}, changeTypes(newlyDiscovered), "positive observations from a deeper scan must be reported")
+	deepToStandard := Compare(deep, standard)
+	assert.NotContains(t, changeTypes(deepToStandard), "finding.resolved", "standard cannot resolve a finding only produced by the nuclei integration")
+
+	deepAgain := &model.Snapshot{SchemaVersion: "2", Coverage: append([]string(nil), deep.Coverage...)}
+	changes := Compare(deep, deepAgain)
+	require.Len(t, changes, 2)
+	assert.ElementsMatch(t, []string{"finding.resolved", "frontend.source_map_disappeared"}, changeTypes(changes))
+
+	partialDeep := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}}
+	partialChanges := Compare(deep, partialDeep)
+	assert.NotContains(t, changeTypes(partialChanges), "frontend.source_map_disappeared", "missing JavaScript coverage cannot resolve the source map")
+	assert.NotContains(t, changeTypes(partialChanges), "finding.resolved", "partial deep coverage cannot resolve findings from stages that did not complete")
+}
+
+func changeTypes(changes []model.Change) []string {
+	result := make([]string, 0, len(changes))
+	for _, change := range changes {
+		result = append(result, change.Type)
+	}
+	return result
+}

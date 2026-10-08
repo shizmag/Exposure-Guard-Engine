@@ -17,7 +17,7 @@ const (
 	// ProtocolVersion is the machine JSONL protocol version.
 	ProtocolVersion = "1"
 	// SnapshotSchemaVersion is the normalized snapshot schema version.
-	SnapshotSchemaVersion    = "1"
+	SnapshotSchemaVersion    = "2"
 	BatchProtocolVersion     = "1"
 	IdentityAlgorithmVersion = "1"
 	// EngineName is the official CLI/engine identifier.

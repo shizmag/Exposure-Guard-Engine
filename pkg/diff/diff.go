@@ -21,17 +21,41 @@ func Compare(oldSnap, newSnap *model.Snapshot) []model.Change {
 	if oldSnap == nil || newSnap == nil {
 		return nil
 	}
+	legacyComparison := (oldSnap.SchemaVersion == "1" && newSnap.SchemaVersion == "1") || (oldSnap.SchemaVersion == "" && newSnap.SchemaVersion == "")
+	if !legacyComparison && (oldSnap.SchemaVersion != "2" || newSnap.SchemaVersion != "2") {
+		// A v1 Snapshot has no coverage metadata. Treating its missing values as
+		// observations would turn a profile transition into false removals.
+		return nil
+	}
 
 	var changes []model.Change
 
 	// 1. Diff Assets
-	changes = append(changes, diffAssets(oldSnap.Assets, newSnap.Assets)...)
+	if legacyComparison {
+		changes = append(changes, diffAssets(oldSnap.Assets, newSnap.Assets)...)
+	} else {
+		changes = append(changes, diffAssetsWithCoverage(oldSnap, newSnap)...)
+	}
 
 	// 2. Diff Findings
-	changes = append(changes, diffFindings(oldSnap.Findings, newSnap.Findings)...)
+	if legacyComparison {
+		changes = append(changes, diffFindings(oldSnap.Findings, newSnap.Findings)...)
+	} else {
+		changes = append(changes, diffFindingsWithCoverage(oldSnap, newSnap)...)
+	}
 
 	// 3. Diff Observations (DNS, TLS, HTTP, Headers)
-	changes = append(changes, diffObservations(oldSnap.Observations, newSnap.Observations)...)
+	if legacyComparison {
+		changes = append(changes, diffObservations(oldSnap.Observations, newSnap.Observations)...)
+	} else {
+		oldObs := make([]model.Observation, 0, len(oldSnap.Observations))
+		for _, observation := range oldSnap.Observations {
+			if coverageIncludesAll(newSnap.Coverage, observation.Coverage) {
+				oldObs = append(oldObs, observation)
+			}
+		}
+		changes = append(changes, diffObservations(oldObs, newSnap.Observations)...)
+	}
 
 	// Deterministic sorting of changes
 	sort.Slice(changes, func(i, j int) bool {
@@ -52,7 +76,61 @@ func Compare(oldSnap, newSnap *model.Snapshot) []model.Change {
 	return changes
 }
 
+func diffAssetsWithCoverage(oldSnap, newSnap *model.Snapshot) []model.Change {
+	removedEligible := make(map[string]struct{})
+	for _, asset := range oldSnap.Assets {
+		if coverageIncludesAll(newSnap.Coverage, asset.Coverage) {
+			removedEligible[asset.ID] = struct{}{}
+		}
+	}
+	// A newly observed asset is positive evidence even if the previous profile did
+	// not run the stage that found it. Coverage gates only absence claims.
+	return diffAssetsFiltered(oldSnap.Assets, newSnap.Assets, nil, removedEligible)
+}
+
+func diffFindingsWithCoverage(oldSnap, newSnap *model.Snapshot) []model.Change {
+	oldMap := make(map[string]model.Finding, len(oldSnap.Findings))
+	newMap := make(map[string]model.Finding, len(newSnap.Findings))
+	for _, finding := range oldSnap.Findings {
+		oldMap[finding.ID] = finding
+	}
+	for _, finding := range newSnap.Findings {
+		newMap[finding.ID] = finding
+	}
+	removedEligible := make(map[string]struct{})
+	for _, finding := range oldSnap.Findings {
+		if coverageIncludesAll(newSnap.Coverage, finding.Coverage) {
+			removedEligible[finding.ID] = struct{}{}
+		}
+	}
+	// A newly observed finding must be surfaced even when the previous Snapshot
+	// did not cover its source stage. Coverage gates only resolution claims.
+	return diffFindingsFiltered(oldSnap.Findings, newSnap.Findings, nil, removedEligible)
+}
+
+// coverageIncludesAll requires each stage that observed the item to have completed in the comparison Snapshot.
+// This conservative check avoids declaring an item removed based on only one of several discovery paths.
+func coverageIncludesAll(snapshotCoverage, itemCoverage []string) bool {
+	if len(itemCoverage) == 0 || len(snapshotCoverage) == 0 {
+		return false
+	}
+	covered := make(map[string]struct{}, len(snapshotCoverage))
+	for _, stage := range snapshotCoverage {
+		covered[stage] = struct{}{}
+	}
+	for _, stage := range itemCoverage {
+		if _, ok := covered[stage]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func diffAssets(oldAssets, newAssets []model.Asset) []model.Change {
+	return diffAssetsFiltered(oldAssets, newAssets, nil, nil)
+}
+
+func diffAssetsFiltered(oldAssets, newAssets []model.Asset, addedEligible, removedEligible map[string]struct{}) []model.Change {
 	var changes []model.Change
 	oldMap := make(map[string]model.Asset)
 	newMap := make(map[string]model.Asset)
@@ -66,7 +144,7 @@ func diffAssets(oldAssets, newAssets []model.Asset) []model.Change {
 
 	// Assets added
 	for id, a := range newMap {
-		if _, exists := oldMap[id]; !exists {
+		if _, exists := oldMap[id]; !exists && eligibleChange(addedEligible, id) {
 			changeType := "asset.added"
 			importance := model.ImportanceInfo
 			reason := fmt.Sprintf("New asset %s (%s) discovered", a.Value, a.Kind)
@@ -98,7 +176,7 @@ func diffAssets(oldAssets, newAssets []model.Asset) []model.Change {
 
 	// Assets removed
 	for id, a := range oldMap {
-		if _, exists := newMap[id]; !exists {
+		if _, exists := newMap[id]; !exists && eligibleChange(removedEligible, id) {
 			changeType := "asset.removed"
 			importance := model.ImportanceInfo
 			reason := fmt.Sprintf("Asset %s (%s) no longer discovered", a.Value, a.Kind)
@@ -127,6 +205,10 @@ func diffAssets(oldAssets, newAssets []model.Asset) []model.Change {
 }
 
 func diffFindings(oldFindings, newFindings []model.Finding) []model.Change {
+	return diffFindingsFiltered(oldFindings, newFindings, nil, nil)
+}
+
+func diffFindingsFiltered(oldFindings, newFindings []model.Finding, addedEligible, removedEligible map[string]struct{}) []model.Change {
 	var changes []model.Change
 	oldMap := make(map[string]model.Finding)
 	newMap := make(map[string]model.Finding)
@@ -140,7 +222,7 @@ func diffFindings(oldFindings, newFindings []model.Finding) []model.Change {
 
 	// Findings appeared
 	for id, f := range newMap {
-		if _, exists := oldMap[id]; !exists {
+		if _, exists := oldMap[id]; !exists && eligibleChange(addedEligible, id) {
 			imp := model.ImportanceMedium
 			if f.Severity == model.SeverityCritical || f.Severity == model.SeverityHigh {
 				imp = model.ImportanceHigh
@@ -164,7 +246,7 @@ func diffFindings(oldFindings, newFindings []model.Finding) []model.Change {
 
 	// Findings resolved
 	for id, f := range oldMap {
-		if _, exists := newMap[id]; !exists {
+		if _, exists := newMap[id]; !exists && eligibleChange(removedEligible, id) {
 			imp := model.ImportanceLow
 			if f.Severity == model.SeverityCritical || f.Severity == model.SeverityHigh {
 				imp = model.ImportanceMedium
@@ -185,6 +267,14 @@ func diffFindings(oldFindings, newFindings []model.Finding) []model.Change {
 	}
 
 	return changes
+}
+
+func eligibleChange(eligible map[string]struct{}, id string) bool {
+	if eligible == nil {
+		return true
+	}
+	_, ok := eligible[id]
+	return ok
 }
 
 func diffObservations(oldObs, newObs []model.Observation) []model.Change {

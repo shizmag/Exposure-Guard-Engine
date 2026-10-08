@@ -16,7 +16,7 @@
     "engine_binary_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "protocol_version": {"const": "1"},
     "batch_protocol_version": {"const": "1"},
-    "snapshot_schema_version": {"const": "1"},
+    "snapshot_schema_version": {"const": "2"},
     "identity_algorithm_version": {"const": "1"},
     "toolchain_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "tools": {

@@ -24,6 +24,7 @@ const (
 type Finding struct {
 	ID          string     `json:"id"`
 	CheckID     string     `json:"check_id"`
+	Coverage    []string   `json:"coverage,omitempty"`
 	RuleID      string     `json:"rule_id"`
 	Severity    Severity   `json:"severity"`
 	Confidence  Confidence `json:"confidence"`

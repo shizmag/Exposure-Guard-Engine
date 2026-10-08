@@ -20,6 +20,7 @@ type Snapshot struct {
 	Fingerprint   string          `json:"fingerprint,omitempty"`
 	Target        Target          `json:"target"`
 	CapturedAt    time.Time       `json:"captured_at,omitzero"`
+	Coverage      []string        `json:"coverage,omitempty"`
 	Assets        []Asset         `json:"assets"`
 	Observations  []Observation   `json:"observations"`
 	Findings      []Finding       `json:"findings"`

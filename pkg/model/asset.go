@@ -20,5 +20,6 @@ type Asset struct {
 	URL           string            `json:"url,omitempty"`
 	Source        string            `json:"source,omitempty"`
 	DiscoveredVia string            `json:"discovered_via,omitempty"`
+	Coverage      []string          `json:"coverage,omitempty"`
 	Attributes    map[string]string `json:"attributes,omitempty"`
 }
