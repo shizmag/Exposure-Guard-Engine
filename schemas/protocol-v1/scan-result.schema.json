@@ -12,7 +12,7 @@
     },
     "status": {
       "type": "string",
-      "enum": ["complete", "partial", "failed"],
+      "enum": ["complete", "partial", "failed", "cancelled"],
       "description": "Execution status of the scan"
     },
     "scan_id": {

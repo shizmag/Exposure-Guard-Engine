@@ -43,18 +43,19 @@ const (
 )
 
 type batchEventWriter struct {
-	mu       sync.Mutex
-	writer   io.Writer
-	batchID  string
-	seq      int64
-	written  int64
-	limit    int64
-	terminal bool
-	fatal    error
-	cancel   context.CancelFunc
-	scanSeq  map[string]int64
-	scanEnd  map[string]bool
-	scans    map[string]struct{}
+	mu         sync.Mutex
+	writer     io.Writer
+	batchID    string
+	seq        int64
+	written    int64
+	limit      int64
+	terminal   bool
+	fatal      error
+	cancel     context.CancelFunc
+	scanSeq    map[string]int64
+	scanEnd    map[string]bool
+	scanStatus map[string]string
+	scans      map[string]struct{}
 }
 
 func (w *batchEventWriter) failure() error {
@@ -67,6 +68,12 @@ func (w *batchEventWriter) scanStarted(scanID string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.scanSeq[scanID] > 0
+}
+
+func (w *batchEventWriter) scanTerminated(scanID string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.scanEnd[scanID]
 }
 
 func (w *batchEventWriter) setScans(scans []model.ScanRequest) {
@@ -83,7 +90,7 @@ func newBatchEventWriter(writer io.Writer, batchID string, limit ...int64) *batc
 	if len(limit) > 0 && limit[0] > 0 {
 		maxOutput = limit[0]
 	}
-	return &batchEventWriter{writer: writer, batchID: batchID, limit: maxOutput, scanSeq: make(map[string]int64), scanEnd: make(map[string]bool), scans: make(map[string]struct{})}
+	return &batchEventWriter{writer: writer, batchID: batchID, limit: maxOutput, scanSeq: make(map[string]int64), scanEnd: make(map[string]bool), scanStatus: make(map[string]string), scans: make(map[string]struct{})}
 }
 
 func (w *batchEventWriter) emitBatch(kind string, data any) error {
@@ -91,13 +98,6 @@ func (w *batchEventWriter) emitBatch(kind string, data any) error {
 	defer w.mu.Unlock()
 	if w.fatal != nil {
 		return w.fatal
-	}
-	if kind != "batch.started" && len(w.scans) > 0 {
-		for scanID := range w.scans {
-			if !w.scanEnd[scanID] {
-				return fmt.Errorf("scan %s lacks terminal event", scanID)
-			}
-		}
 	}
 	if kind != "batch.started" && kind != "batch.completed" && kind != "batch.failed" && kind != "batch.cancelled" {
 		return fmt.Errorf("unsupported batch event type %q", kind)
@@ -115,6 +115,19 @@ func (w *batchEventWriter) emitBatch(kind string, data any) error {
 	})
 	if err != nil {
 		return err
+	}
+	if kind != "batch.started" {
+		for scanID := range w.scans {
+			if !w.scanEnd[scanID] {
+				return fmt.Errorf("scan %s lacks terminal event", scanID)
+			}
+		}
+		if result, ok := data.(model.BatchResult); ok {
+			want := map[model.BatchStatus]string{model.BatchStatusComplete: "batch.completed", model.BatchStatusPartial: "batch.completed", model.BatchStatusFailed: "batch.failed", model.BatchStatusCancelled: "batch.cancelled"}[result.Status]
+			if kind != want {
+				return fmt.Errorf("%s conflicts with aggregate status %q", kind, result.Status)
+			}
+		}
 	}
 	if err := w.writeLocked(payload); err != nil {
 		w.terminal = true
@@ -155,6 +168,11 @@ func (w *batchEventWriter) emitScan(payload []byte) error {
 	if localSeq == 1 && kind != string(protocol.EventScanStarted) {
 		return errors.New("scan.started must be first per-scan event")
 	}
+	if (kind == string(protocol.EventScanCompleted) && statusFromEvent(event) != "complete" && statusFromEvent(event) != "partial") ||
+		(kind == string(protocol.EventScanFailed) && statusFromEvent(event) != "failed") ||
+		(kind == string(protocol.EventScanCancelled) && statusFromEvent(event) != "cancelled") {
+		return fmt.Errorf("scan terminal event %q conflicts with result status %q", kind, statusFromEvent(event))
+	}
 	if w.seq == 0 {
 		return errors.New("batch.started must be first event")
 	}
@@ -174,8 +192,26 @@ func (w *batchEventWriter) emitScan(payload []byte) error {
 	w.scanSeq[scanID]++
 	if kind == string(protocol.EventScanCompleted) || kind == string(protocol.EventScanFailed) || kind == string(protocol.EventScanCancelled) {
 		w.scanEnd[scanID] = true
+		w.scanStatus[scanID] = statusFromEvent(event)
+		if w.scanStatus[scanID] == "" {
+			w.scanStatus[scanID] = map[string]string{string(protocol.EventScanCompleted): "complete", string(protocol.EventScanFailed): "failed", string(protocol.EventScanCancelled): "cancelled"}[kind]
+		}
 	}
 	return nil
+}
+
+func statusFromEvent(event map[string]any) string {
+	data, ok := event["data"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if result, ok := data["result"].(map[string]any); ok {
+		if status, ok := result["status"].(string); ok {
+			return status
+		}
+	}
+	status, _ := data["status"].(string)
+	return status
 }
 
 func (w *batchEventWriter) scanHasStarted(scanID string) bool {
@@ -186,7 +222,7 @@ func (w *batchEventWriter) scanHasStarted(scanID string) bool {
 
 func (w *batchEventWriter) writeLocked(payload []byte) error {
 	lineBytes := int64(len(payload) + 1)
-	if len(payload) > maxBatchEventBytes || w.written+lineBytes > w.limit {
+	if int64(len(payload)) > maxBatchEventBytes || w.written+lineBytes > w.limit {
 		w.fatal = errors.New("batch output budget exceeded")
 		w.terminal = true
 		if w.cancel != nil {
@@ -277,7 +313,10 @@ func runBatchIO(parent context.Context, opts *batchOptions, stdin io.Reader, std
 		}
 	}
 	if opts.format == "jsonl" && outputBudget < 1<<20 {
-		return &ExitCodeError{Code: 2, Err: errors.New("JSONL output budget must be at least 1 MiB")}
+		return &ExitCodeError{Code: 2, Err: errors.New("JSONL aggregate output budget must be at least 1 MiB")}
+	}
+	if opts.format == "jsonl" && opts.resultOut != "" {
+		return &ExitCodeError{Code: 2, Err: errors.New("--result-out is only supported with --format json")}
 	}
 	if opts.format == "json" && int64(len(payload)) > outputBudget {
 		return &ExitCodeError{Code: 2, Err: errors.New("BatchRequest exceeds JSON mode output budget")}
@@ -338,10 +377,12 @@ func runBatchIO(parent context.Context, opts *batchOptions, stdin io.Reader, std
 		return err
 	}
 	terminal := "batch.completed"
-	if ctx.Err() != nil {
+	if result.Status == "failed" {
+		terminal = "batch.failed"
+	} else if result.Status == "cancelled" {
 		terminal = "batch.cancelled"
 	}
-	if err := events.emitBatch(terminal, result.Summary); err != nil {
+	if err := events.emitBatch(terminal, result); err != nil {
 		return &ExitCodeError{Code: 1, Err: err}
 	}
 	return nil
@@ -373,15 +414,24 @@ func runOneBatchScan(ctx context.Context, request model.ScanRequest, registry *i
 	env := checks.NewEnvironmentWithPolicy(nil, nil, policy, request.Limits, encoder)
 	result, err := engine.NewEngineWithIntegrations(env, encoder, registry, runner).Run(ctx, engine.Options{Request: request, PreviousSnapshot: request.PreviousSnapshot, IncludeResultInTerminal: true, MaxSnapshotBytes: outputBudget, TempRoot: tempRoot})
 	if err != nil {
-		status := "failed"
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			status = "cancelled"
+		status := string(model.ScanStatusFailed)
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			status = string(model.ScanStatusCancelled)
+		}
+		if events != nil && events.failure() != nil {
+			return model.BatchScanResult{ScanID: request.ScanID, Status: status, Error: err.Error()}
+		}
+		if events != nil && events.scanHasStarted(request.ScanID) && events.scanTerminated(request.ScanID) {
+			return model.BatchScanResult{ScanID: request.ScanID, Status: status, Error: err.Error()}
 		}
 		return failedBatchScan(request.ScanID, status, err, events)
 	}
 	snapshotBytes, err := json.Marshal(result.Snapshot)
 	if err != nil || int64(len(snapshotBytes)) > outputBudget {
 		return failedBatchScan(request.ScanID, "failed", errors.New("Snapshot exceeds batch output budget"), events)
+	}
+	if events != nil && events.scanStarted(request.ScanID) && !events.scanTerminated(request.ScanID) {
+		return failedBatchScan(request.ScanID, "failed", errors.New("scan terminal event missing from engine output"), events)
 	}
 	if events == nil {
 		if int64(scanOutput.Len()) > outputBudget {
@@ -434,6 +484,9 @@ func failedBatchScan(scanID, status string, reason error, events *batchEventWrit
 	}
 	_ = encoder.Emit(terminal, map[string]any{"status": status, "errors": []string{message}})
 	_ = emitScanLines(events, &output)
+	if events != nil && events.failure() != nil {
+		return model.BatchScanResult{ScanID: scanID, Status: status, Error: message}
+	}
 	return model.BatchScanResult{ScanID: scanID, Status: status, Error: message}
 }
 
@@ -478,12 +531,14 @@ func aggregateBatch(id string, scans []model.BatchScanResult, started, finished 
 		}
 	}
 	switch {
-	case result.CancelledCount == result.ScanCount:
-		result.Status = "cancelled"
+	case result.ScanCount > 0 && result.CancelledCount == result.ScanCount:
+		result.Status = model.BatchStatusCancelled
+	case result.ScanCount > 0 && result.FailedCount == result.ScanCount:
+		result.Status = model.BatchStatusFailed
 	case result.PartialCount+result.FailedCount+result.CancelledCount > 0:
-		result.Status = "partial"
+		result.Status = model.BatchStatusPartial
 	default:
-		result.Status = "complete"
+		result.Status = model.BatchStatusComplete
 	}
 	result.Summary = model.BatchSummary{
 		Total: result.ScanCount, Completed: result.CompletedCount, Partial: result.PartialCount,

@@ -1,12 +1,13 @@
 .PHONY: all build test test-race vet lint clean ci \
 	tools-install tools-check integrations-test docker-build docker-smoke install-local \
-	generate manifest-check release-smoke batch-test batch-e2e batch-e2e-stdin batch-load-test e2e
+	generate manifest-check release-smoke batch-test batch-e2e batch-e2e-stdin batch-load-test e2e dev-dist dist-check installer-test release-packages
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/exposureguard
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0-dev")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+DIST ?= .dev/dist
 
 LDFLAGS := -s -w \
 	-X github.com/exposureguard/exposureguard/internal/buildinfo.Version=$(VERSION) \
@@ -75,17 +76,35 @@ generate:
 manifest-check: generate
 	@git diff --exit-code pkg/integration/tools_lock_gen.go || (echo "Error: Embedded tool manifest has drifted from canonical /tools.lock.json. Run 'make generate' and commit." && exit 1)
 
-release-smoke: build
-	@echo "==> Running release artifact smoke tests..."
-	./bin/exposureguard version --format json
-	./bin/exposureguard doctor
-	./bin/exposureguard profiles list
-	./bin/exposureguard integrations list
-	./bin/exposureguard checks list
-	./bin/exposureguard scan https://example.com --profile standard --plan
-	./bin/exposureguard snapshot hash testdata/snapshots/snapshot_v1_expected.json
-	./bin/exposureguard diff testdata/snapshots/diff_source_map_old.json testdata/snapshots/diff_source_map_new.json
-	@echo "==> Release smoke tests passed successfully."
+dev-dist:
+	@mkdir -p .dev/dist
+	EXPOSUREGUARD_CACHE="$(CURDIR)/.dev/cache/$$(go env GOOS)_$$(go env GOARCH)" ./install.sh --with-tools --prefix "$(CURDIR)/.dev/dist" --version "$(VERSION)"
+
+release-packages: goreleaser
+	goreleaser release --snapshot --clean
+	./scripts/build-rc-packages.sh
+	./scripts/check-rc-artifacts.sh
+	@echo "v0.1.0-rc1 local full/core artifacts are ready in dist/release-artifacts"
+
+rc-publish: release-packages
+	@echo "Artifacts validated. To publish via configured GoReleaser/GitHub workflow:"
+	@echo "  git tag -a v0.1.0-rc1 -m 'ExposureGuard Engine v0.1.0-rc1'"
+	@echo "  git push origin v0.1.0-rc1"
+
+goreleaser:
+	@command -v goreleaser >/dev/null 2>&1 || { echo "install goreleaser v2 and syft to build release packages" >&2; exit 1; }
+	@command -v syft >/dev/null 2>&1 || { echo "install syft to build release SBOMs" >&2; exit 1; }
+
+release-smoke: release-packages
+	ARTIFACT_DIR=$(CURDIR)/dist ./scripts/release-smoke.sh
+
+installer-test:
+	./scripts/test-installer.sh
+
+dist-check:
+	go run ./cmd/build-distribution --root "$(DIST)" --schema "$(CURDIR)/schemas/distribution-manifest.schema.json" --check
+	EXPOSUREGUARD_HOME="$(DIST)" "$(DIST)/bin/exposureguard" doctor
+	EXPOSUREGUARD_HOME="$(DIST)" "$(DIST)/bin/exposureguard" version --json
 
 ci: manifest-check vet test test-race release-smoke
 	@echo "All CI checks passed."

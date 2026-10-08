@@ -194,7 +194,7 @@ echo ""
 if [ "$CHECK_ONLY" -eq 1 ]; then
     echo "Check mode: inspecting current environment..."
     if [ -x "${BIN_DIR}/exposureguard" ]; then
-        "${BIN_DIR}/exposureguard" doctor
+        EXPOSUREGUARD_HOME="${INSTALL_PREFIX}" "${BIN_DIR}/exposureguard" doctor
     elif command -v exposureguard >/dev/null 2>&1; then
         exposureguard doctor
     else
@@ -204,9 +204,12 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
 fi
 
 # Ensure target directories exist
-mkdir -p "${BIN_DIR}" "${TOOLS_DIR}" "${TEMPLATES_DIR}" "${PROFILES_DIR}" "$(dirname "$MANIFEST_PATH")"
+mkdir -p "${BIN_DIR}" "${TOOLS_DIR}" "${PROFILES_DIR}" "$(dirname "$MANIFEST_PATH")"
+if [ "$MODE" = "with-tools" ]; then mkdir -p "${TEMPLATES_DIR}"; fi
 
 TMP_DIR="$(mktemp -d -t eg-install-XXXXXX)"
+CACHE_DIR="${EXPOSUREGUARD_CACHE:-${SCRIPT_DIR}/.dev/cache/${PLATFORM_KEY}}"
+if [ "$MODE" = "with-tools" ]; then mkdir -p "$CACHE_DIR"; fi
 cleanup() {
     rm -rf "$TMP_DIR"
 }
@@ -223,9 +226,13 @@ echo "✓ Installed ${BIN_DIR}/exposureguard"
 
 # Create symlink in ~/.local/bin if directory exists and is writable
 USER_LOCAL_BIN="${HOME}/.local/bin"
-if [ -d "$USER_LOCAL_BIN" ] && [ -w "$USER_LOCAL_BIN" ] && [ "$BIN_DIR" != "$USER_LOCAL_BIN" ]; then
-    ln -sf "${BIN_DIR}/exposureguard" "${USER_LOCAL_BIN}/exposureguard" 2>/dev/null || true
-    echo "✓ Linked ${USER_LOCAL_BIN}/exposureguard -> ${BIN_DIR}/exposureguard"
+if [ -z "$CUSTOM_PREFIX" ] && [ -z "${EXPOSUREGUARD_HOME:-}" ] && [ -d "$USER_LOCAL_BIN" ] && [ -w "$USER_LOCAL_BIN" ] && [ "$BIN_DIR" != "$USER_LOCAL_BIN" ]; then
+    LINK_TARGET="${BIN_DIR}/exposureguard"
+    if [ -L "${USER_LOCAL_BIN}/exposureguard" ] && [ "$(readlink "${USER_LOCAL_BIN}/exposureguard")" = "$SCRIPT_DIR/.dev/dist/bin/exposureguard" ]; then
+        LINK_TARGET="${SCRIPT_DIR}/.dev/dist/bin/exposureguard"
+    fi
+    ln -sf "$LINK_TARGET" "${USER_LOCAL_BIN}/exposureguard" 2>/dev/null || true
+    echo "✓ Linked ${USER_LOCAL_BIN}/exposureguard -> ${LINK_TARGET}"
 fi
 
 # 2. Install pinned tools if requested
@@ -247,18 +254,23 @@ if [ "$MODE" = "with-tools" ]; then
         DOWNLOAD_URL="https://github.com/projectdiscovery/${tool}/releases/download/v${VERSION}/${ARCHIVE}"
         ARCHIVE_PATH="${TMP_DIR}/${ARCHIVE}"
 
-        echo "    Downloading: $DOWNLOAD_URL"
-        curl -sSL --fail --retry 3 --retry-delay 2 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
-
-        echo "    Verifying SHA-256 checksum..."
-        ACTUAL_SHA="$(sha256_file "$ARCHIVE_PATH")"
-        if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
-            echo "Error: Cryptographic checksum mismatch for $tool!" >&2
-            echo "  Expected: $EXPECTED_SHA" >&2
-            echo "  Actual:   $ACTUAL_SHA" >&2
-            exit 1
+        CACHED_ARCHIVE="${CACHE_DIR}/${ARCHIVE}"
+        if [ -f "$CACHED_ARCHIVE" ] && [ "$(sha256_file "$CACHED_ARCHIVE")" = "$EXPECTED_SHA" ]; then
+            cp "$CACHED_ARCHIVE" "$ARCHIVE_PATH"
+            echo "    Reusing verified cache: $CACHED_ARCHIVE"
+        else
+            echo "    Downloading: $DOWNLOAD_URL"
+            curl -sSL --fail --retry 3 --retry-delay 2 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
+            ACTUAL_SHA="$(sha256_file "$ARCHIVE_PATH")"
+            if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+                echo "Error: Cryptographic checksum mismatch for $tool!" >&2
+                echo "  Expected: $EXPECTED_SHA" >&2
+                echo "  Actual:   $ACTUAL_SHA" >&2
+                exit 1
+            fi
+            cp "$ARCHIVE_PATH" "$CACHED_ARCHIVE"
+            echo "    ✓ Checksum verified ($ACTUAL_SHA)"
         fi
-        echo "    ✓ Checksum verified ($ACTUAL_SHA)"
 
         EXTRACT_DIR="${TMP_DIR}/ext_${tool}"
         mkdir -p "$EXTRACT_DIR"
@@ -292,61 +304,45 @@ if [ "$MODE" = "with-tools" ]; then
     TPL_URL="https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/${TPL_ARCHIVE}"
     TPL_FILE="${TMP_DIR}/${TPL_ARCHIVE}"
 
-    echo "    Downloading: $TPL_URL"
-    curl -sSL --fail --retry 3 --retry-delay 2 "$TPL_URL" -o "$TPL_FILE"
-
-    echo "    Verifying SHA-256 checksum..."
-    ACTUAL_TPL_SHA="$(sha256_file "$TPL_FILE")"
-    if [ "$ACTUAL_TPL_SHA" != "$TPL_SHA" ]; then
-        echo "Error: Cryptographic checksum mismatch for nuclei-templates!" >&2
-        echo "  Expected: $TPL_SHA" >&2
-        echo "  Actual:   $ACTUAL_TPL_SHA" >&2
-        exit 1
+    CACHED_TPL="${CACHE_DIR}/${TPL_ARCHIVE}"
+    if [ -f "$CACHED_TPL" ] && [ "$(sha256_file "$CACHED_TPL")" = "$TPL_SHA" ]; then
+        cp "$CACHED_TPL" "$TPL_FILE"
+        ACTUAL_TPL_SHA="$TPL_SHA"
+        echo "    Reusing verified cache: $CACHED_TPL"
+    else
+        echo "    Downloading: $TPL_URL"
+        curl -sSL --fail --retry 3 --retry-delay 2 "$TPL_URL" -o "$TPL_FILE"
+        ACTUAL_TPL_SHA="$(sha256_file "$TPL_FILE")"
+        if [ "$ACTUAL_TPL_SHA" != "$TPL_SHA" ]; then
+            echo "Error: Cryptographic checksum mismatch for nuclei-templates!" >&2
+            echo "  Expected: $TPL_SHA" >&2
+            echo "  Actual:   $ACTUAL_TPL_SHA" >&2
+            exit 1
+        fi
+        cp "$TPL_FILE" "$CACHED_TPL"
+        echo "    ✓ Checksum verified ($ACTUAL_TPL_SHA)"
     fi
-    echo "    ✓ Checksum verified ($ACTUAL_TPL_SHA)"
 
     mkdir -p "${TEMPLATES_DIR}" "${TMP_DIR}/tpl_ext"
     unzip -q -o "$TPL_FILE" -d "${TMP_DIR}/tpl_ext"
     cp -r "${TMP_DIR}/tpl_ext"/nuclei-templates-*/* "${TEMPLATES_DIR}/"
     printf '%s\n' "$ACTUAL_TPL_SHA" > "${TEMPLATES_DIR}/.nuclei-templates-archive.sha256"
-    cp -R profiles/nuclei/v1/. "${PROFILES_DIR}/."
+    printf '%s\n' "$TPL_VERSION" > "${TEMPLATES_DIR}/.nuclei-templates-version"
     echo "    ✓ Nuclei templates installed at ${TEMPLATES_DIR}"
 fi
 
-# Write immutable runtime manifest after exact files are installed.
-python3 - "$MANIFEST_PATH" "$BIN_DIR" "$TEMPLATES_DIR" "$PROFILES_DIR" "$ENGINE_VERSION_OVERRIDE" <<'PY'
-import hashlib, json, pathlib, sys
-manifest_path, bindir, templates, profiles, override = sys.argv[1:]
-import subprocess
-commit = subprocess.run(['git','rev-parse','--short','HEAD'], capture_output=True, text=True).stdout.strip() or 'unknown'
-lock_path = pathlib.Path('tools.lock.json')
-lock = json.loads(lock_path.read_text())
-def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
-def binary(name):
-    path = pathlib.Path(bindir) / name
-    return {'version': lock['tools'][name]['version'], 'sha256': sha(path) if path.is_file() else ''}
-profile_manifest = pathlib.Path(profiles) / 'manifest.json'
-manifest = {
-  'distribution_schema_version': '1',
-  'engine': 'exposureguard',
-  'engine_version': override or '0.1.0-dev',
-  'engine_binary_sha256': sha(pathlib.Path(bindir) / 'exposureguard'),
-  'engine_commit': commit,
-  'protocol_version': '1', 'batch_protocol_version': '1', 'snapshot_schema_version': '1', 'identity_algorithm_version': '1',
-  'toolchain_manifest_sha256': sha(lock_path),
-  'tools': {name: binary(name) for name in ('subfinder','httpx','katana','nuclei')},
-  'nuclei_templates_version': lock['tools']['nuclei-templates']['version'],
-  'nuclei_templates_sha256': sha(pathlib.Path(templates) / '.nuclei-templates-archive.sha256') if (pathlib.Path(templates) / '.nuclei-templates-archive.sha256').exists() else lock['tools']['nuclei-templates']['sha256'],
-  'nuclei_ruleset_version': 'v1.0-defensive',
-  'nuclei_ruleset_sha256': sha(profile_manifest),
-}
-required = {'engine_binary_sha256', 'toolchain_manifest_sha256', 'nuclei_ruleset_sha256', 'nuclei_templates_sha256'}
-assert required.issubset(manifest) and all(len(manifest[k]) == 64 for k in required)
-pathlib.Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')
-PY
+if [ "$MODE" = "engine-only" ]; then
+    for tool in subfinder httpx katana nuclei; do rm -f "${BIN_DIR}/${tool}"; done
+    rm -rf "${TEMPLATES_DIR}"
+fi
+cp -R profiles/nuclei/v1/. "${PROFILES_DIR}/."
+cp tools.lock.json "${INSTALL_PREFIX}/tools.lock.json"
+cp schemas/distribution-manifest.schema.json "${INSTALL_PREFIX}/distribution-manifest.schema.json"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+go run ./cmd/build-distribution --root "${INSTALL_PREFIX}" --schema "${INSTALL_PREFIX}/distribution-manifest.schema.json" --version "${ENGINE_VERSION}" --commit "${GIT_COMMIT}"
 
 export EXPOSUREGUARD_HOME="${INSTALL_PREFIX}"
-export EXPOSUREGUARD_NUCLEI_TEMPLATES="${TEMPLATES_DIR}"
+if [ "$MODE" = "with-tools" ]; then export EXPOSUREGUARD_NUCLEI_TEMPLATES="${TEMPLATES_DIR}"; fi
 
 
 echo ""
@@ -355,7 +351,7 @@ echo "Running ExposureGuard Doctor Verification..."
 echo "=========================================================="
 
 export PATH="${BIN_DIR}:${PATH}"
-"${BIN_DIR}/exposureguard" doctor || true
+"${BIN_DIR}/exposureguard" doctor
 
 echo ""
 echo "=========================================================="

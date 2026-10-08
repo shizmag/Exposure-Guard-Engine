@@ -4,14 +4,14 @@
   "status": "partial",
   "scan_count": 3,
   "completed_count": 2,
-  "partial_count": 0,
-  "failed_count": 1,
+  "partial_count": 1,
+  "failed_count": 0,
   "cancelled_count": 0,
   "summary": {
     "total": 3,
     "completed": 2,
-    "partial": 0,
-    "failed": 1,
+    "partial": 1,
+    "failed": 0,
     "cancelled": 0,
     "started_at": "2026-10-07T00:00:00Z",
     "finished_at": "2026-10-07T00:00:02Z",
@@ -24,8 +24,8 @@
     "git_commit": "fixture"
   },
   "scans": [
-    {"scan_id": "c1000000-0000-4000-8000-000000000011", "status": "failed", "error": "synthetic failure"},
-    {"scan_id": "c1000000-0000-4000-8000-000000000012", "status": "complete", "summary": {"total_findings": 0}},
-    {"scan_id": "c1000000-0000-4000-8000-000000000013", "status": "complete", "summary": {"total_findings": 0}}
+    {"scan_id": "c1000000-0000-4000-8000-000000000011", "status": "complete", "summary": {"total_findings": 0}},
+    {"scan_id": "c1000000-0000-4000-8000-000000000012", "status": "failed", "error": "synthetic failure"},
+    {"scan_id": "c1000000-0000-4000-8000-000000000013", "status": "partial", "summary": {"total_findings": 0}}
   ]
 }

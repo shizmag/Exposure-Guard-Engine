@@ -9,12 +9,25 @@
       "type": "object",
       "required": ["batch_protocol_version", "seq", "timestamp", "type", "batch_id", "data"],
       "properties": {
-        "batch_protocol_version": { "type": "string", "const": "1" },
-        "seq": { "type": "integer", "minimum": 1 },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "type": { "enum": ["batch.started", "batch.completed", "batch.failed", "batch.cancelled"] },
-        "batch_id": { "type": "string", "format": "uuid" },
-        "data": { "type": "object" }
+        "batch_protocol_version": {"const": "1"},
+        "seq": {"type": "integer", "minimum": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "type": {"const": "batch.started"},
+        "batch_id": {"type": "string", "format": "uuid"},
+        "data": {"type": "object", "required": ["total", "started_at"], "properties": {"total": {"type": "integer", "minimum": 1, "maximum": 20}, "started_at": {"type": "string", "format": "date-time"}}}
+      },
+      "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "required": ["batch_protocol_version", "seq", "timestamp", "type", "batch_id", "data"],
+      "properties": {
+        "batch_protocol_version": {"const": "1"},
+        "seq": {"type": "integer", "minimum": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "type": {"enum": ["batch.completed", "batch.failed", "batch.cancelled"]},
+        "batch_id": {"type": "string", "format": "uuid"},
+        "data": {"$ref": "batch-result.schema.json"}
       },
       "additionalProperties": true
     },
@@ -22,14 +35,21 @@
       "type": "object",
       "required": ["batch_protocol_version", "batch_id", "seq", "scan_seq", "timestamp", "scan_id", "type", "data"],
       "properties": {
-        "batch_protocol_version": { "type": "string", "const": "1" },
-        "seq": { "type": "integer", "minimum": 1, "description": "Global batch event sequence" },
-        "batch_id": { "type": "string", "format": "uuid" },
-        "scan_seq": { "type": "integer", "minimum": 1, "description": "Independent per-scan event sequence" },
-        "timestamp": { "type": "string", "format": "date-time" },
-        "scan_id": { "type": "string", "format": "uuid" },
-        "type": { "type": "string", "enum": ["scan.started", "stage.started", "stage.completed", "asset.discovered", "observation", "finding", "change", "warning", "scan.summary", "scan.completed", "scan.failed", "scan.cancelled"] },
-        "data": {}
+        "batch_protocol_version": {"const": "1"},
+        "seq": {"type": "integer", "minimum": 1, "description": "Global batch event sequence"},
+        "batch_id": {"type": "string", "format": "uuid"},
+        "scan_seq": {"type": "integer", "minimum": 1, "description": "Independent per-scan event sequence"},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "scan_id": {"type": "string", "format": "uuid"},
+        "type": {"enum": ["scan.started", "stage.started", "stage.completed", "asset.discovered", "observation", "finding", "change", "warning", "scan.summary", "scan.completed", "scan.failed", "scan.cancelled"]},
+        "data": {
+          "type": "object",
+          "properties": {
+            "status": {"enum": ["complete", "partial", "failed", "cancelled"]},
+            "result": {"$ref": "scan-result.schema.json"}
+          },
+          "additionalProperties": true
+        }
       },
       "additionalProperties": true
     }

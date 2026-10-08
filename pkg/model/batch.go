@@ -22,11 +22,22 @@ type BatchLimits struct {
 	MaxOutputBytes               int64 `json:"max_output_bytes,omitempty"`
 }
 
+// BatchStatus is the aggregate Batch Protocol v1 outcome. BatchResult counts
+// describe accepted items; workload statuses do not set the process exit code.
+type BatchStatus string
+
+const (
+	BatchStatusComplete  BatchStatus = "complete"
+	BatchStatusPartial   BatchStatus = "partial"
+	BatchStatusFailed    BatchStatus = "failed"
+	BatchStatusCancelled BatchStatus = "cancelled"
+)
+
 // BatchResult summarizes isolated scan outcomes without merging Snapshots.
 type BatchResult struct {
 	ProtocolVersion string            `json:"batch_protocol_version"`
 	BatchID         string            `json:"batch_id"`
-	Status          string            `json:"status"`
+	Status          BatchStatus       `json:"status"`
 	ScanCount       int               `json:"scan_count"`
 	CompletedCount  int               `json:"completed_count"`
 	PartialCount    int               `json:"partial_count"`

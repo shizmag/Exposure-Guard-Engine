@@ -10,6 +10,7 @@ Welcome to the technical documentation for ExposureGuard Engine (v0.1.0).
 - **[Protocol v1 Specification](protocol-v1.md)**: Stable single-scan execution contract, `ScanRequest`, JSONL events, and `ScanResult`.
 - **[Batch Protocol v1](batch-protocol-v1.md)**: Bounded multi-target subprocess contract, multiplexed JSONL, limits and Cloud scheduling guidance.
 - **[Snapshot v1 Specification](snapshot-v1.md)**: Normalized inventory model, stable identity calculation, canonical hashing, and diffing.
+- **[Identity Algorithm v1](identity-v1.md)**: Frozen ID formulas and mandatory pre-v1 rebaseline/Cloud compatibility policy.
 - **[Product Vision](product.md)**: Motivation, target user journey, and defensive external exposure monitoring principles.
 - **[Release Readiness Audit](release-readiness-v0.1.md)**: Factual readiness audit and pre-release evaluation.
 - **[Post-v0.1.0 Roadmap](roadmap.md)**: Features, deferred tools, and future architectural evolutions.

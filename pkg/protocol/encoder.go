@@ -41,7 +41,7 @@ func (e *Encoder) Error() error {
 }
 
 // Emit writes a single event to the underlying stream with monotonically increasing seq.
-// Events emitted after EventScanCompleted or EventScanFailed are rejected.
+// Events emitted after any scan terminal event are rejected.
 func (e *Encoder) Emit(eventType EventType, data any) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

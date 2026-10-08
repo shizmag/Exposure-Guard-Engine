@@ -33,18 +33,34 @@ stdin contains exactly one `BatchRequest` object. JSONL is the production transp
 - Default scan concurrency: 4; hard ceiling: 4. 1, 2 or 4 may be requested. Per-scan native concurrency is capped at 2.
 - Default `max_parallel_external_processes` is `min(max_parallel_scans, 4)`; never above scan concurrency or hard ceiling 4. Slots are shared by the Engine instance.
 - Native per-scan HTTP/crawler concurrency is clamped to 2 and per-host rate to 1 request/sec; this conservative per-scan ceiling is used with the 4-scan batch ceiling.
-- Aggregate external stdout/stderr is budgeted at 64 MiB; aggregate temporary output budget is 256 MiB. `max_output_bytes` and `max_temp_bytes` may lower those defaults, not raise them. Batch request/output lines have 8 MiB/1 MiB ceilings.
+- Aggregate external stdout/stderr is budgeted at 64 MiB; aggregate temporary output budget is 256 MiB. `max_output_bytes` and `max_temp_bytes` may lower those defaults, not raise them. The BatchRequest input limit is 8 MiB; each emitted JSONL event line is capped at 64 MiB, and aggregate JSONL/BatchResult output is capped by `max_output_bytes` (default 64 MiB).
 - Work is submitted FIFO to a fixed worker pool; each completion frees a slot for the next queued scan. Each scan gets a separate Snapshot; only result summaries are aggregated.
 
-Cancellation stops queued work, cancels active contexts and child process groups, emits `scan.cancelled` where output remains writable, then `batch.cancelled`. Engine child processes are directly managed; there is no queue/daemon.
+Cancellation stops assigning queued work and cancels active contexts/child process groups; every accepted item is still driven to a terminal `scan.cancelled` where stdout remains writable. The aggregate then follows the normal status table (`cancelled` + `batch.cancelled` only if all items cancelled; otherwise `partial` + `batch.completed`). A CLI parent context that is cancelled before event streaming starts can yield all item cancellation terminals. Engine child processes are directly managed; there is no queue/daemon.
+
+`max_parallel_scans = 4` remains the conservative configured ceiling/default; it has not been performance-validated. Do not interpret this as production concurrency tuning.
 
 ## JSONL envelope and ordering
 
-The first line is `batch.started` with `batch_protocol_version`, `batch_id`, `seq:1`, `timestamp`, and data. Every item event preserves scan v1 fields/types and adds `batch_protocol_version`, `batch_id`, global `seq`, and per-scan `scan_seq`. Global sequence increases monotonically over stdout. Per-scan sequence starts at 1 on `scan.started`, increases without gaps, and has exactly one terminal `scan.completed`, `scan.failed` or `scan.cancelled`. Different scans interleave nondeterministically. The one terminal batch event (`batch.completed`, `batch.failed`, or `batch.cancelled`) is the last line; no subsequent write is allowed. Per-scan snapshot content is deterministic independent of interleaving.
+The first line is `batch.started` with `batch_protocol_version`, `batch_id`, `seq:1`, `timestamp`, and data. Every item event preserves scan v1 fields/types and adds `batch_protocol_version`, `batch_id`, global `seq`, and per-scan `scan_seq`. Global sequence increases monotonically over stdout. Per-scan sequence starts at 1 on `scan.started`, increases without gaps, and has exactly one terminal `scan.completed`, `scan.failed` or `scan.cancelled`. Different scans interleave nondeterministically. The one terminal batch event (`batch.completed`, `batch.failed`, or `batch.cancelled`) is the last line; no subsequent write is allowed. Per-scan snapshot content is deterministic independent of interleaving. When a terminal event is emitted, the terminal status agrees with the embedded item/result status.
 
-A scan failure does not stop siblings. If every item reached a terminal result, protocol-level item failures are represented in events/results and process exit is zero. Nonzero exit is reserved for malformed/unsupported batch requests, process-level/internal errors, or stdout failures. Vulnerability/finding outcome is not an exit status.
+A scan failure does not stop siblings. Every valid accepted request emits `batch.started` first, exactly one terminal event for each accepted scan, then exactly one batch terminal event last. If stdout/protocol transport fails, a terminal event may be physically impossible; Engine exits 1 and Cloud must treat stream as incomplete.
 
-`BatchResult` contains each independent `ScanResult`, aggregate status/counts/timestamps/duration and Engine provenance. Aggregate status is `partial` if any item is partial, failed or cancelled; no Snapshots are merged.
+Aggregate status is determined only by item terminal statuses:
+
+| Item statuses | BatchResult.status | Batch terminal event | Process exit |
+| --- | --- | --- | ---: |
+| all `complete` | `complete` | `batch.completed` | 0 |
+| any mixture of `complete`/`partial`/`failed`, with no cancellation and not all failed | `partial` | `batch.completed` | 0 |
+| all `failed` | `failed` | `batch.failed` | 0 |
+| all `cancelled` | `cancelled` | `batch.cancelled` | 0 |
+| any mixture containing cancellation | `partial` | `batch.completed` | 0 |
+
+`scan.cancelled` carries `result.status = cancelled`; a terminal cancellation discovered before a ScanResult can be produced has the same status in event data and BatchScanResult. `scan.completed` carries `result.status` `complete` or `partial`; `scan.failed` carries `failed`. Cancellation is a normal workload outcome and never selects process exit status.
+
+Invalid/malformed BatchRequest, unsupported protocol, and invalid limits exit 2 before `batch.started`. Policy/semantic rejection after acceptance is an item `scan.failed` and exits 0. Internal/runtime, protocol encoding, output-budget or stdout failures exit 1; stdout failure can truncate stream. Exit code is not a retry signal for individual scans. Cloud uses each scan terminal/result.
+
+`BatchResult` contains each independent `ScanResult`, aggregate status/counts/timestamps/duration and Engine provenance. No Snapshots are merged.
 
 ## Cloud process example (TypeScript)
 

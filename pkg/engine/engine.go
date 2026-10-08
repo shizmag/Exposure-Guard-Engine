@@ -517,7 +517,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 
 	status := model.ScanStatusComplete
 	if ctx.Err() != nil {
-		status = model.ScanStatusFailed
+		status = model.ScanStatusCancelled
 	} else if len(errorsList) > 0 {
 		status = model.ScanStatusPartial
 	}
@@ -528,11 +528,17 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			status = model.ScanStatusFailed
 		}
 	}
+	if ctx.Err() != nil {
+		status = model.ScanStatusCancelled
+	}
 	result := resultForTerminal(status, req.ScanID, tgt, snap, changes, stats, start, completedAt, errorsList)
 	if opts.IncludeResultInTerminal {
 		if encoded, err := json.Marshal(result); err != nil || int64(len(encoded)) > opts.MaxSnapshotBytes {
 			errorsList = append(errorsList, "ScanResult exceeds batch output budget")
 			status = model.ScanStatusFailed
+			if ctx.Err() != nil {
+				status = model.ScanStatusCancelled
+			}
 			result = resultForTerminal(status, req.ScanID, tgt, snap, changes, stats, start, completedAt, errorsList)
 		}
 	}
@@ -548,7 +554,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		terminalData["result"] = result
 	}
 	if ctx.Err() != nil {
-		terminalData["status"] = "cancelled"
+		terminalData["status"] = status
 		terminalData["errors"] = errorsList
 		e.emit(protocol.EventScanCancelled, terminalData)
 	} else if status == model.ScanStatusFailed {

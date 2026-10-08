@@ -6,9 +6,10 @@ import "time"
 type ScanStatus string
 
 const (
-	ScanStatusComplete ScanStatus = "complete"
-	ScanStatusPartial  ScanStatus = "partial"
-	ScanStatusFailed   ScanStatus = "failed"
+	ScanStatusComplete  ScanStatus = "complete"
+	ScanStatusPartial   ScanStatus = "partial"
+	ScanStatusFailed    ScanStatus = "failed"
+	ScanStatusCancelled ScanStatus = "cancelled"
 )
 
 // ScanStats captures performance and discovery metrics.

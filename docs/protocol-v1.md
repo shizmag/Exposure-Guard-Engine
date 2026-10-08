@@ -35,9 +35,9 @@ Cloud proof-of-ownership remains Cloud-owned. `mode: owned` is an authorization 
 
 ## Events and result
 
-Existing event types and semantics remain stable: scan.started, stage.started/completed, asset.discovered, observation, finding, change, warning, scan.summary, scan.completed/failed. `scan.cancelled` is additive for process cancellation; existing consumers may treat it as a terminal failure/cancellation. Exactly one scan terminal event is emitted when output remains writable.
+Existing event types and semantics remain stable: scan.started, stage.started/completed, asset.discovered, observation, finding, change, warning, scan.summary, scan.completed/failed. `scan.cancelled` and `ScanResult.status = cancelled` are frozen together for cancellation; the event and result statuses MUST match. `ScanResult.status` is one of `complete`, `partial`, `failed`, `cancelled`. Exactly one scan terminal event is emitted when output remains writable.
 
-`ScanResult` schema: `schemas/protocol-v1/scan-result.schema.json`. Human, `--format json`, and `--format jsonl` remain supported. JSONL starts/streams events; JSON returns a complete result. Snapshot v1 is separately versioned.
+`ScanResult` schema: `schemas/protocol-v1/scan-result.schema.json`. Human, `--format json`, and `--format jsonl` remain supported. JSONL starts/streams events; JSON returns a complete result. Snapshot schema version and Identity Algorithm version are separate compatibility dimensions; Cloud v0.1 accepts only Engine distributions reporting `identity_algorithm_version: "1"`. See [Identity Algorithm v1](identity-v1.md) for pre-v1 rebaseline policy. Snapshot v1 is separately versioned.
 
 ## Exit codes
 
@@ -47,6 +47,6 @@ Existing event types and semantics remain stable: scan.started, stage.started/co
 | 1 | Internal/runtime error |
 | 2 | Usage/request validation error |
 | 3 | Netguard security policy blocked target |
-| 4 | Timeout or cancellation |
+| 4 | Timeout or cancellation for standalone `scan` invocation; in Batch, `cancelled` is a workload status and normal batch cancellation exits 0 |
 
 Batch process/aggregate status uses Batch Protocol v1 rules, not these scan findings semantics.

@@ -1,0 +1,15 @@
+{
+  "batch_protocol_version": "1",
+  "batch_id": "b1000000-0000-4000-8000-000000000002",
+  "status": "failed",
+  "scan_count": 2,
+  "completed_count": 0,
+  "partial_count": 0,
+  "failed_count": 2,
+  "cancelled_count": 0,
+  "summary": {"total": 2, "completed": 0, "partial": 0, "failed": 2, "cancelled": 0, "started_at": "2026-10-07T00:00:00Z", "finished_at": "2026-10-07T00:00:01Z", "duration": 1000000000, "assets": 0, "observations": 0, "findings": 0, "changes": 0, "engine_version": "0.1.0-rc1", "git_commit": "fixture"},
+  "scans": [
+    {"scan_id": "c1000000-0000-4000-8000-000000000021", "status": "failed", "error": "synthetic policy rejection"},
+    {"scan_id": "c1000000-0000-4000-8000-000000000022", "status": "failed", "error": "synthetic policy rejection"}
+  ]
+}

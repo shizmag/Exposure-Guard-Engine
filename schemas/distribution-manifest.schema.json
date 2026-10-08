@@ -3,17 +3,69 @@
   "$id": "https://exposureguard.dev/schemas/distribution-manifest.schema.json",
   "title": "ExposureGuard Engine Distribution Manifest",
   "type": "object",
-  "required": ["distribution_schema_version", "engine", "engine_version", "engine_commit", "engine_binary_sha256", "protocol_version", "batch_protocol_version", "snapshot_schema_version", "identity_algorithm_version", "toolchain_manifest_sha256", "tools", "nuclei_templates_version", "nuclei_templates_sha256", "nuclei_ruleset_version", "nuclei_ruleset_sha256"],
+  "required": [
+    "distribution_schema_version", "distribution_type", "distribution_capabilities", "engine", "engine_version", "engine_commit", "engine_binary_sha256", "protocol_version", "batch_protocol_version", "snapshot_schema_version", "identity_algorithm_version", "toolchain_manifest_sha256", "tools", "nuclei_templates_version", "nuclei_templates_sha256", "nuclei_ruleset_version", "nuclei_ruleset_sha256"
+  ],
   "properties": {
-    "distribution_schema_version": {"const": "1"}, "engine": {"const": "exposureguard"},
-    "engine_version": {"type": "string"}, "engine_commit": {"type": "string"},
+    "distribution_schema_version": {"const": "1"},
+    "distribution_type": {"enum": ["engine-only", "full"]},
+    "distribution_capabilities": {"type": "array", "items": {"type": "string"}},
+    "engine": {"const": "exposureguard"},
+    "engine_version": {"type": "string"},
+    "engine_commit": {"type": "string"},
     "engine_binary_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "protocol_version": {"const": "1"}, "batch_protocol_version": {"const": "1"},
-    "snapshot_schema_version": {"const": "1"}, "identity_algorithm_version": {"const": "1"},
+    "protocol_version": {"const": "1"},
+    "batch_protocol_version": {"const": "1"},
+    "snapshot_schema_version": {"const": "1"},
+    "identity_algorithm_version": {"const": "1"},
     "toolchain_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "tools": {"type": "object", "required": ["subfinder", "httpx", "katana", "nuclei"], "additionalProperties": {"type": "object", "required": ["version", "binary_sha256"], "properties": {"version": {"type": "string"}, "binary_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}},
-    "nuclei_templates_version": {"type": "string"}, "nuclei_templates_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "nuclei_ruleset_version": {"type": "string"}, "nuclei_ruleset_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    "tools": {
+      "type": "object",
+      "properties": {
+        "subfinder": {"$ref": "#/$defs/tool"},
+        "httpx": {"$ref": "#/$defs/tool"},
+        "katana": {"$ref": "#/$defs/tool"},
+        "nuclei": {"$ref": "#/$defs/tool"}
+      },
+      "additionalProperties": false
+    },
+    "nuclei_templates_version": {"type": "string"},
+    "nuclei_templates_sha256": {"type": "string", "pattern": "^$|^[a-f0-9]{64}$"},
+    "nuclei_ruleset_version": {"type": "string"},
+    "nuclei_ruleset_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
   },
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": ["version", "binary_sha256"],
+      "properties": {
+        "version": {"type": "string"},
+        "binary_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"distribution_type": {"const": "full"}}},
+      "then": {
+        "properties": {
+          "tools": {"required": ["subfinder", "httpx", "katana", "nuclei"]},
+          "nuclei_templates_version": {"minLength": 1},
+          "nuclei_templates_sha256": {"pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"distribution_type": {"const": "engine-only"}}},
+      "then": {
+        "properties": {
+          "tools": {"maxProperties": 0},
+          "nuclei_templates_version": {"maxLength": 0},
+          "nuclei_templates_sha256": {"maxLength": 0}
+        }
+      }
+    }
+  ],
   "additionalProperties": false
 }

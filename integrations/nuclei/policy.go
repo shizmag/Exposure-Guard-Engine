@@ -5,7 +5,7 @@ import "strings"
 const (
 	CuratedProfileVersion   = "v1.0-defensive"
 	CuratedTemplatesVersion = "10.5.0"
-	CuratedRulesetSHA256    = "9d9645adf0d134ecd593489cdbff384460e143761878c488ff415bdede7164b0"
+	CuratedRulesetSHA256    = "9d86bf395b6254b8dffcde66e6d1e9ece64018c0a5911eff7ea198d92ce9dcda"
 	CuratedRulesetPath      = "profiles/nuclei/v1/manifest.json"
 )
 

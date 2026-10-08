@@ -9,6 +9,7 @@ import (
 
 	"github.com/exposureguard/exposureguard/integrations/nuclei"
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
+	"github.com/exposureguard/exposureguard/internal/distribution"
 	"github.com/exposureguard/exposureguard/pkg/integration"
 	"github.com/spf13/cobra"
 )
@@ -40,7 +41,7 @@ func verifiedDistributionManifest(binaryPath, fallback string) (map[string]any, 
 	manifestPath := distributionManifestPath()
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return map[string]any{"engine_version": fallback, "engine_binary_sha256": fileSHA256(binaryPath)}, nil
+		return map[string]any{"engine_version": fallback, "engine_binary_sha256": fileSHA256(binaryPath), "identity_algorithm_version": buildinfo.IdentityAlgorithmVersion}, nil
 	}
 	var manifest map[string]any
 	if err := json.Unmarshal(data, &manifest); err != nil {
@@ -52,8 +53,29 @@ func verifiedDistributionManifest(binaryPath, fallback string) (map[string]any, 
 	if manifest["engine_binary_sha256"] != fileSHA256(binaryPath) {
 		return nil, fmt.Errorf("distribution manifest binary SHA-256 mismatch")
 	}
+	if manifest["engine_commit"] != buildinfo.GitCommit {
+		return nil, fmt.Errorf("distribution manifest engine commit mismatch")
+	}
 	if manifest["toolchain_manifest_sha256"] != fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())) {
 		return nil, fmt.Errorf("distribution manifest toolchain fingerprint mismatch")
+	}
+	if manifest["identity_algorithm_version"] != buildinfo.IdentityAlgorithmVersion {
+		return nil, fmt.Errorf("distribution manifest identity algorithm version mismatch")
+	}
+	if manifest["distribution_type"] == "full" {
+		for _, name := range []string{"subfinder", "httpx", "katana", "nuclei"} {
+			if _, ok := manifest["tools"].(map[string]any)[name]; !ok {
+				return nil, fmt.Errorf("full distribution missing tool %s", name)
+			}
+		}
+	}
+	root := filepath.Dir(manifestPath)
+	schemaPath := filepath.Join(root, "distribution-manifest.schema.json")
+	if _, err := os.Stat(schemaPath); err != nil {
+		schemaPath = filepath.Join("schemas", "distribution-manifest.schema.json")
+	}
+	if err := distribution.Check(root, schemaPath); err != nil {
+		return nil, err
 	}
 	return manifest, nil
 }

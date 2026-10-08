@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/exposureguard/exposureguard/integrations"
 	"github.com/exposureguard/exposureguard/integrations/nuclei"
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
+	"github.com/exposureguard/exposureguard/internal/distribution"
 	"github.com/exposureguard/exposureguard/pkg/integration"
 	"github.com/spf13/cobra"
 )
@@ -96,6 +98,7 @@ type doctorCheckItem struct {
 }
 
 type doctorReport struct {
+	DistributionType           string                  `json:"distribution_type,omitempty"`
 	Status                     DoctorStatus            `json:"status"`
 	Engine                     doctorEngineView        `json:"engine"`
 	ProtocolVersion            string                  `json:"protocol_version"`
@@ -121,9 +124,10 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 
 	overallStatus := StatusPass
 	parallelScans, parallelErr := maxParallelScans()
-	manifestHash, manifestErr := distributionManifestStatus()
+	manifestHash, distributionType, manifestErr := distributionManifestStatus()
 
 	report := doctorReport{
+		DistributionType: distributionType,
 		Engine: doctorEngineView{
 			Name:      buildinfo.EngineName,
 			Version:   buildinfo.Version,
@@ -220,18 +224,32 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		}
 		_ = os.RemoveAll(testDir)
 	}
+	if distributionType == "engine-only" && manifestErr == nil {
+		overallStatus = StatusPass
+	}
 
 	// 2. Probe registered integrations
 	runner := integration.NewOSRunner("")
-	reg := integration.DefaultRegistry()
+	reg := integrations.NewBuiltinRegistry()
 	adapters := reg.List()
 
+	manifest, _ := readDistributionManifest()
 	for _, a := range adapters {
 		meta := a.Metadata()
 		inst, err := a.Detect(ctx, runner)
+		if distributionType == "full" {
+			expected, declared := manifest.Tools[a.ID()]
+			if !declared || !inst.Installed || fileSHA256(inst.Path) != expected.BinarySHA256 {
+				inst.Compatible = false
+				inst.Warning = "installed binary SHA-256 differs from distribution manifest"
+			}
+		}
 
 		itemStatus := StatusFail
-		if inst.Installed && inst.Compatible {
+		if distributionType == "engine-only" {
+			itemStatus = StatusPass
+			inst.Warning = "not included in engine-only distribution"
+		} else if inst.Installed && inst.Compatible {
 			itemStatus = StatusPass
 		} else if inst.Installed && !inst.Compatible {
 			itemStatus = StatusWarn
@@ -258,9 +276,9 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		if err != nil && item.Warning == "" {
 			item.Warning = err.Error()
 		}
-
-		if !inst.Installed || !inst.Compatible {
+		if distributionType == "full" && (!inst.Installed || !inst.Compatible) {
 			report.AllReady = false
+			overallStatus = StatusFail
 		}
 
 		report.Integrations = append(report.Integrations, item)
@@ -274,16 +292,22 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	// 3. Check Nuclei templates
 	templatesPath, templatesVer, err := discoverNucleiTemplates()
 	if err != nil {
+		templateStatus := StatusFail
+		if distributionType == "engine-only" {
+			templateStatus = StatusPass
+		} else {
+			report.AllReady = false
+			overallStatus = StatusFail
+		}
 		report.NucleiTemplates = doctorTemplatesView{
 			Present:    false,
 			Compatible: false,
-			Status:     StatusWarn,
+			Status:     templateStatus,
 			Error:      err.Error(),
 		}
-		report.AllReady = false
 		report.Checks = append(report.Checks, doctorCheckItem{
 			Name:    "nuclei_templates",
-			Status:  StatusWarn,
+			Status:  templateStatus,
 			Message: err.Error(),
 		})
 	} else {
@@ -327,16 +351,20 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	}
 
 	for _, item := range report.Integrations {
-		if item.Status == StatusPass {
+		if distributionType == "engine-only" {
+			fmt.Printf("%-4s  %s: unavailable (engine-only distribution)\n", StatusWarn, item.ID)
+		} else if item.Status == StatusPass {
 			fmt.Printf("%-4s  %s: %s (%s)\n", StatusPass, item.ID, item.Version, item.Path)
 		} else if item.Status == StatusWarn {
-			fmt.Printf("%-4s  %s: version incompatible (%s: %s)\n", StatusWarn, item.ID, item.Version, item.Warning)
+			fmt.Printf("%-4s  %s: not included in engine-only distribution\n", StatusWarn, item.ID)
 		} else {
 			fmt.Printf("%-4s  %s: binary missing (%s not found in PATH or %s/bin)\n", StatusFail, item.ID, item.Binary, integration.DefaultExposureGuardHome())
 		}
 	}
 
-	if report.NucleiTemplates.Present {
+	if distributionType == "engine-only" {
+		fmt.Printf("%-4s  nuclei_templates: unavailable (engine-only distribution)\n", StatusPass)
+	} else if report.NucleiTemplates.Present {
 		fmt.Printf("%-4s  nuclei_templates: present (%s)\n", StatusPass, report.NucleiTemplates.Path)
 	} else {
 		fmt.Printf("%-4s  nuclei_templates: not found (%s)\n", StatusWarn, report.NucleiTemplates.Error)
@@ -353,47 +381,84 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	return nil
 }
 
-func distributionManifestStatus() (string, error) {
-	path := filepath.Join(integration.DefaultExposureGuardHome(), "distribution-manifest.json")
+func distributionManifestLocation() (string, error) {
+	if path := filepath.Join(integration.DefaultExposureGuardHome(), "distribution-manifest.json"); fileExists(path) {
+		return path, nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	for _, path := range []string{
+		filepath.Join(filepath.Dir(executable), "..", "distribution-manifest.json"),
+		filepath.Join("/opt/exposureguard", "distribution-manifest.json"),
+	} {
+		if fileExists(path) {
+			return path, nil
+		}
+	}
+	return "", errors.New("distribution manifest missing")
+}
+
+func readDistributionManifest() (distribution.Manifest, error) {
+	path, err := distributionManifestLocation()
+	if err != nil {
+		return distribution.Manifest{}, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		executable, exeErr := os.Executable()
-		if exeErr != nil {
-			return "", fmt.Errorf("distribution manifest missing: %w", err)
-		}
-		candidates := []string{filepath.Join(filepath.Dir(executable), "..", "distribution-manifest.json"), filepath.Join("/opt/exposureguard", "distribution-manifest.json")}
-		for _, candidate := range candidates {
-			data, err = os.ReadFile(candidate)
-			if err == nil {
-				break
-			}
-		}
-		if err != nil {
-			return "", fmt.Errorf("distribution manifest missing: %w", err)
-		}
+		return distribution.Manifest{}, err
 	}
-	var manifest struct {
-		EngineVersion string `json:"engine_version"`
-		EngineBinary  string `json:"engine_binary_sha256"`
-		Toolchain     string `json:"toolchain_manifest_sha256"`
-		Ruleset       string `json:"nuclei_ruleset_sha256"`
-	}
+	var manifest distribution.Manifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return "", fmt.Errorf("distribution manifest invalid: %w", err)
+		return distribution.Manifest{}, err
+	}
+	return manifest, nil
+}
+
+func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
+
+func distributionManifestStatus() (string, string, error) {
+	path, err := distributionManifestLocation()
+	if err != nil {
+		return "", "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	if err := distribution.Validate(path, filepath.Join(filepath.Dir(path), "schemas", "distribution-manifest.schema.json")); err != nil {
+		legacySchema := filepath.Join(filepath.Dir(path), "distribution-manifest.schema.json")
+		if !fileExists(filepath.Join(filepath.Dir(path), "schemas", "distribution-manifest.schema.json")) {
+			if err := distribution.Validate(path, legacySchema); err != nil {
+				return "", "", err
+			}
+		} else {
+			return "", "", err
+		}
+	}
+	var manifest distribution.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return "", "", fmt.Errorf("distribution manifest invalid: %w", err)
 	}
 	if manifest.EngineVersion != buildinfo.Version {
-		return "", errors.New("distribution engine version mismatch")
+		return "", "", errors.New("distribution engine version mismatch")
 	}
-	if executable, err := os.Executable(); err != nil || manifest.EngineBinary != fileSHA256(executable) {
-		return "", errors.New("distribution engine binary fingerprint mismatch")
+	if manifest.EngineCommit != buildinfo.GitCommit {
+		return "", "", errors.New("distribution engine commit mismatch")
 	}
-	if manifest.Toolchain != fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())) {
-		return "", errors.New("distribution toolchain fingerprint mismatch")
+	root := filepath.Dir(path)
+	schemaPath := filepath.Join(root, "schemas", "distribution-manifest.schema.json")
+	if !fileExists(schemaPath) {
+		schemaPath = filepath.Join(root, "distribution-manifest.schema.json")
 	}
-	if manifest.Ruleset != nuclei.CuratedRulesetSHA256 {
-		return "", errors.New("distribution ruleset fingerprint mismatch")
+	if !fileExists(schemaPath) {
+		schemaPath = filepath.Join("schemas", "distribution-manifest.schema.json")
 	}
-	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+	if err := distribution.Check(root, schemaPath); err != nil {
+		return "", "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data)), manifest.DistributionType, nil
 }
 
 func discoverNucleiTemplates() (string, string, error) {
@@ -413,6 +478,9 @@ func discoverNucleiTemplates() (string, string, error) {
 	if _, err := os.Stat(homeTemplates); err == nil {
 		ver := readVersionFile(filepath.Join(homeTemplates, ".nuclei-templates-version"))
 		return homeTemplates, ver, nil
+	}
+	if _, err := os.Stat(filepath.Join(home, "distribution-manifest.json")); err == nil {
+		return "", "", errors.New("Nuclei templates unavailable in engine-only distribution")
 	}
 
 	// 3. Fallback to current repository / workspace if running from source

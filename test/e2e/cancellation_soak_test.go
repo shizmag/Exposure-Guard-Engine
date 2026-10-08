@@ -83,7 +83,7 @@ func TestCancellationSoakAndTempCleanup(t *testing.T) {
 	if err != nil {
 		assert.ErrorIs(t, ctx.Err(), context.Canceled)
 	} else if res != nil {
-		assert.Equal(t, model.ScanStatusFailed, res.Status)
+		assert.Equal(t, model.ScanStatusCancelled, res.Status)
 	}
 
 	// Verify temp directory was completely removed after cancellation

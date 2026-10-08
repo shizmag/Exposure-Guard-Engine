@@ -1,79 +1,10 @@
 {
   "batch_protocol_version": "1",
   "batch_id": "b1000000-0000-4000-8000-000000000001",
-  "limits": {
-    "max_batch_size": 16,
-    "max_parallel_scans": 2,
-    "max_parallel_external_processes": 2,
-    "max_temp_bytes": 67108864,
-    "max_output_bytes": 16777216
-  },
+  "limits": {"max_batch_size": 16, "max_parallel_scans": 1, "max_parallel_external_processes": 1, "max_temp_bytes": 67108864, "max_output_bytes": 16777216},
   "scans": [
-    {
-      "schema_version": "1",
-      "scan_id": "c1000000-0000-4000-8000-000000000011",
-      "target": "http://127.0.0.1:1/fail",
-      "profile": "quick",
-      "mode": "public",
-      "limits": {
-        "total_timeout_seconds": 120,
-        "request_timeout_seconds": 10,
-        "dns_timeout_seconds": 5,
-        "tls_handshake_timeout_seconds": 7,
-        "max_redirects": 8,
-        "max_depth": 2,
-        "max_pages": 100,
-        "max_assets": 500,
-        "max_response_bytes": 4194304,
-        "max_total_download_bytes": 52428800,
-        "max_concurrency": 8,
-        "max_per_host_concurrency": 4,
-        "requests_per_second_per_host": 2
-      }
-    },
-    {
-      "schema_version": "1",
-      "scan_id": "c1000000-0000-4000-8000-000000000012",
-      "target": "http://127.0.0.1:1/fail",
-      "profile": "quick",
-      "mode": "public",
-      "limits": {
-        "total_timeout_seconds": 120,
-        "request_timeout_seconds": 10,
-        "dns_timeout_seconds": 5,
-        "tls_handshake_timeout_seconds": 7,
-        "max_redirects": 8,
-        "max_depth": 2,
-        "max_pages": 100,
-        "max_assets": 500,
-        "max_response_bytes": 4194304,
-        "max_total_download_bytes": 52428800,
-        "max_concurrency": 8,
-        "max_per_host_concurrency": 4,
-        "requests_per_second_per_host": 2
-      }
-    },
-    {
-      "schema_version": "1",
-      "scan_id": "c1000000-0000-4000-8000-000000000013",
-      "target": "https://gamma.example.com",
-      "profile": "quick",
-      "mode": "public",
-      "limits": {
-        "total_timeout_seconds": 120,
-        "request_timeout_seconds": 10,
-        "dns_timeout_seconds": 5,
-        "tls_handshake_timeout_seconds": 7,
-        "max_redirects": 8,
-        "max_depth": 2,
-        "max_pages": 100,
-        "max_assets": 500,
-        "max_response_bytes": 4194304,
-        "max_total_download_bytes": 52428800,
-        "max_concurrency": 8,
-        "max_per_host_concurrency": 4,
-        "requests_per_second_per_host": 2
-      }
-    }
+    {"schema_version":"1", "scan_id":"c1000000-0000-4000-8000-000000000011", "target":"https://alpha.example.com", "profile":"quick", "mode":"public"},
+    {"schema_version":"1", "scan_id":"c1000000-0000-4000-8000-000000000012", "target":"https://beta.example.com", "profile":"quick", "mode":"public"},
+    {"schema_version":"1", "scan_id":"c1000000-0000-4000-8000-000000000013", "target":"https://gamma.example.com", "profile":"quick", "mode":"public"}
   ]
 }

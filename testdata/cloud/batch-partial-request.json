@@ -1,0 +1,9 @@
+{
+  "batch_protocol_version": "1",
+  "batch_id": "b1000000-0000-4000-8000-000000000003",
+  "limits": {"max_parallel_scans": 1},
+  "scans": [
+    {"schema_version": "1", "scan_id": "c1000000-0000-4000-8000-000000000031", "target": "https://example.com", "mode": "public", "profile": "quick"},
+    {"schema_version": "1", "scan_id": "c1000000-0000-4000-8000-000000000032", "target": "https://example.com", "mode": "public", "profile": "deep"}
+  ]
+}

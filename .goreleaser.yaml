@@ -5,7 +5,7 @@ before:
     - go mod tidy
 
 builds:
-  - id: exposureguard
+  - id: exposureguard-core
     main: ./cmd/exposureguard
     binary: exposureguard
     env:
@@ -32,18 +32,21 @@ builds:
         github.com/exposureguard/exposureguard/internal/buildinfo.BuildDate={{
         .Date }}
 
+release:
+  extra_files:
+    - glob: "dist/release-artifacts/exposureguard_{{ .Version }}_*.tar.gz"
+
 archives:
-  - format: tar.gz
+  - id: core
+    ids: [exposureguard-core]
+    formats: [tar.gz]
     name_template: >-
-      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_core
     files:
-      - "distribution-manifest.json"
-      - "tools.lock.json"
-      - "profiles/nuclei/v1/**"
+      - none*
     format_overrides:
       - goos: windows
-        format: zip
-
+        formats: [zip]
 checksum:
   name_template: "SHA256SUMS"
 
