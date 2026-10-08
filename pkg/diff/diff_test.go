@@ -158,6 +158,21 @@ func TestDiffZeroChangesOnIdenticalState(t *testing.T) {
 	assert.Empty(t, changes, "identical semantic states must produce zero changes")
 }
 
+func TestDiffJSONRoundTrippedHTTPStatusDoesNotCreateChange(t *testing.T) {
+	previous := model.Snapshot{Observations: []model.Observation{{
+		Kind: "http_response", Subject: "http://example.com/", Data: map[string]any{"status_code": 200},
+	}}}
+	encoded, err := json.Marshal(previous)
+	require.NoError(t, err)
+	var loaded model.Snapshot
+	require.NoError(t, json.Unmarshal(encoded, &loaded))
+
+	current := model.Snapshot{Observations: []model.Observation{{
+		Kind: "http_response", Subject: "http://example.com/", Data: map[string]any{"status_code": 200},
+	}}}
+	assert.Empty(t, Compare(&loaded, &current), "JSON numeric normalization must not create a false HTTP status transition")
+}
+
 func TestDiffNoiseSuppression(t *testing.T) {
 	snapA := &model.Snapshot{
 		Observations: []model.Observation{

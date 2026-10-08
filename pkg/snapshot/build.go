@@ -12,7 +12,7 @@ import (
 func Build(target model.Target, assets []model.Asset, obs []model.Observation, findings []model.Finding, capturedAt time.Time) model.Snapshot {
 	// Normalize and assign stable IDs with deduplication
 	seenAssets := make(map[string]int)
-	var normAssets []model.Asset
+	normAssets := make([]model.Asset, 0, len(assets))
 	for _, a := range assets {
 		id := a.ID
 		if id == "" {
@@ -46,7 +46,7 @@ func Build(target model.Target, assets []model.Asset, obs []model.Observation, f
 	SortAssets(normAssets)
 
 	seenObs := make(map[string]int)
-	var normObs []model.Observation
+	normObs := make([]model.Observation, 0, len(obs))
 	for _, o := range obs {
 		id := o.ID
 		if id == "" {
@@ -61,7 +61,7 @@ func Build(target model.Target, assets []model.Asset, obs []model.Observation, f
 	SortObservations(normObs)
 
 	seenFindings := make(map[string]int)
-	var normFindings []model.Finding
+	normFindings := make([]model.Finding, 0, len(findings))
 	for _, f := range findings {
 		id := f.ID
 		if id == "" {

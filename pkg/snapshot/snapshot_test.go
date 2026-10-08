@@ -55,6 +55,15 @@ func TestBuildSnapshotDeterministic(t *testing.T) {
 	assert.Equal(t, model.SeverityLow, snap1.Findings[1].Severity)
 }
 
+func TestBuildSnapshotEmitsEmptyCollectionsAsArrays(t *testing.T) {
+	tgt := model.Target{Raw: "https://example.com", URL: "https://example.com/", Host: "example.com", Scheme: "https", Port: 443, Domain: "example.com"}
+	snap := Build(tgt, nil, nil, nil, time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC))
+
+	encoded, err := json.Marshal(snap)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"schema_version":"1","target":{"raw":"https://example.com","url":"https://example.com/","scheme":"https","host":"example.com","port":443,"domain":"example.com"},"captured_at":"2026-10-06T12:00:00Z","assets":[],"observations":[],"findings":[],"summary":{"total_assets":0,"total_observations":0,"total_findings":0,"critical_findings":0,"high_findings":0,"medium_findings":0,"low_findings":0,"info_findings":0},"fingerprint":"`+snap.Fingerprint+`"}`, string(encoded))
+}
+
 func TestSnapshotGoldenCompatibility(t *testing.T) {
 	fixturePath := filepath.Join("..", "..", "testdata", "snapshots", "snapshot_v1_expected.json")
 	data, err := os.ReadFile(fixturePath)

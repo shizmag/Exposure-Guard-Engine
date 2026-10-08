@@ -352,7 +352,7 @@ func runBatchIO(parent context.Context, opts *batchOptions, stdin io.Reader, std
 			budget = outputBudget / int64(parallel)
 		}
 		if budget < 1 {
-			return failedBatchScan(scan.ScanID, "failed", errors.New("batch output budget exhausted by request"), events)
+			return failedBatchScan(scan, "failed", errors.New("batch output budget exhausted by request"), events)
 		}
 		return runOneBatchScan(ctx, scan, registry, sharedRunner, events, budget, policy, batchTempDir)
 	})
@@ -390,7 +390,7 @@ func runBatchIO(parent context.Context, opts *batchOptions, stdin io.Reader, std
 
 func runOneBatchScan(ctx context.Context, request model.ScanRequest, registry *integration.Registry, runner integration.Runner, events *batchEventWriter, outputBudget int64, policy netguard.NetworkPolicy, tempRoot string) model.BatchScanResult {
 	if ctx.Err() != nil {
-		return failedBatchScan(request.ScanID, "cancelled", errors.New("batch cancelled before scan started"), events)
+		return failedBatchScan(request, "cancelled", errors.New("batch cancelled before scan started"), events)
 	}
 	request.SchemaVersion = "1"
 	if request.Mode == "" {
@@ -424,18 +424,18 @@ func runOneBatchScan(ctx context.Context, request model.ScanRequest, registry *i
 		if events != nil && events.scanHasStarted(request.ScanID) && events.scanTerminated(request.ScanID) {
 			return model.BatchScanResult{ScanID: request.ScanID, Status: status, Error: err.Error()}
 		}
-		return failedBatchScan(request.ScanID, status, err, events)
+		return failedBatchScan(request, status, err, events)
 	}
 	snapshotBytes, err := json.Marshal(result.Snapshot)
 	if err != nil || int64(len(snapshotBytes)) > outputBudget {
-		return failedBatchScan(request.ScanID, "failed", errors.New("Snapshot exceeds batch output budget"), events)
+		return failedBatchScan(request, "failed", errors.New("Snapshot exceeds batch output budget"), events)
 	}
 	if events != nil && events.scanStarted(request.ScanID) && !events.scanTerminated(request.ScanID) {
-		return failedBatchScan(request.ScanID, "failed", errors.New("scan terminal event missing from engine output"), events)
+		return failedBatchScan(request, "failed", errors.New("scan terminal event missing from engine output"), events)
 	}
 	if events == nil {
 		if int64(scanOutput.Len()) > outputBudget {
-			return failedBatchScan(request.ScanID, "failed", errors.New("ScanResult exceeds batch output budget"), events)
+			return failedBatchScan(request, "failed", errors.New("ScanResult exceeds batch output budget"), events)
 		}
 		var encodedResult struct {
 			Result *model.ScanResult `json:"result"`
@@ -463,17 +463,24 @@ func (b *boundedBatchBuffer) Write(p []byte) (int, error) {
 func (b *boundedBatchBuffer) Bytes() []byte { return b.buffer.Bytes() }
 func (b *boundedBatchBuffer) Len() int      { return b.buffer.Len() }
 
-func failedBatchScan(scanID, status string, reason error, events *batchEventWriter) model.BatchScanResult {
+func failedBatchScan(request model.ScanRequest, status string, reason error, events *batchEventWriter) model.BatchScanResult {
+	if request.Mode == "" {
+		request.Mode = model.ScanModePublic
+	}
 	message := reason.Error()
 	var output bytes.Buffer
 	var scanWriter io.Writer = &output
 	if events != nil {
 		scanWriter = batchScanEventWriter{events: events}
 	}
-	encoder := protocol.NewEncoder(scanWriter, scanID)
-	started := events == nil || !events.scanHasStarted(scanID)
+	encoder := protocol.NewEncoder(scanWriter, request.ScanID)
+	started := events == nil || !events.scanHasStarted(request.ScanID)
 	if started {
-		_ = encoder.Emit(protocol.EventScanStarted, map[string]string{"scan_id": scanID})
+		_ = encoder.Emit(protocol.EventScanStarted, map[string]string{
+			"scan_id": request.ScanID,
+			"target":  request.Target,
+			"mode":    string(request.Mode),
+		})
 	}
 	if started {
 		_ = encoder.Emit(protocol.EventScanSummary, model.ScanStats{})
@@ -485,9 +492,9 @@ func failedBatchScan(scanID, status string, reason error, events *batchEventWrit
 	_ = encoder.Emit(terminal, map[string]any{"status": status, "errors": []string{message}})
 	_ = emitScanLines(events, &output)
 	if events != nil && events.failure() != nil {
-		return model.BatchScanResult{ScanID: scanID, Status: status, Error: message}
+		return model.BatchScanResult{ScanID: request.ScanID, Status: status, Error: message}
 	}
-	return model.BatchScanResult{ScanID: scanID, Status: status, Error: message}
+	return model.BatchScanResult{ScanID: request.ScanID, Status: status, Error: message}
 }
 
 type batchScanEventWriter struct {

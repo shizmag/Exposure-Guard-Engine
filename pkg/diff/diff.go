@@ -242,7 +242,7 @@ func diffObservations(oldObs, newObs []model.Observation) []model.Change {
 	if oldHTTP != nil && newHTTP != nil {
 		oldCode := oldHTTP.Data["status_code"]
 		newCode := newHTTP.Data["status_code"]
-		if oldCode != newCode {
+		if canonicalValue(oldCode) != canonicalValue(newCode) {
 			key, id := computeChangeIdentity("http.status_changed", newHTTP.Subject, oldCode, newCode)
 			changes = append(changes, model.Change{
 				Key:        key,
