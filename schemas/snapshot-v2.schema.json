@@ -4,13 +4,17 @@
   "title": "SnapshotV2",
   "description": "Normalized inventory with explicit successful-stage coverage for mixed-profile comparison (Schema v2)",
   "type": "object",
-  "required": ["schema_version", "target", "assets", "observations", "findings", "summary"],
+  "required": ["schema_version", "target", "coverage", "assets", "observations", "findings", "summary"],
   "properties": {
     "schema_version": {
       "type": "string",
       "const": "2"
     },
-    "coverage": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "coverage": {
+      "description": "Stages that completed successfully during this scan. An empty array means no stage completed successfully.",
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "fingerprint": {
       "type": "string",
       "description": "Canonical SHA-256 hash of normalized snapshot state"
@@ -35,7 +39,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "kind", "value"],
+        "required": ["id", "kind", "value", "coverage"],
         "properties": {
           "id": { "type": "string" },
           "kind": { "type": "string", "enum": ["hostname", "url", "javascript", "source_map", "endpoint_candidate", "external_reference"] },
@@ -43,7 +47,8 @@
           "url": { "type": "string" },
           "source": { "type": "string" },
           "discovered_via": { "type": "string" },
-          "coverage": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "carried_forward": { "type": "boolean", "description": "True when the item remains in this profile baseline because one or more provenance stages did not complete in this scan." },
+          "coverage": { "description": "Stages that have produced the item, including earlier same-profile observations.", "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "attributes": { "type": "object", "additionalProperties": { "type": "string" } }
         }
       }
@@ -52,12 +57,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "kind", "subject", "data"],
+        "required": ["id", "kind", "subject", "data", "coverage"],
         "properties": {
           "id": { "type": "string" },
           "kind": { "type": "string" },
           "subject": { "type": "string" },
-          "coverage": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "coverage": { "description": "Stages that have produced the item, including earlier same-profile observations.", "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "carried_forward": { "type": "boolean", "description": "True when the item remains in this profile baseline because one or more provenance stages did not complete in this scan." },
           "data": { "type": "object" }
         }
       }
@@ -66,11 +72,12 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "rule_id", "severity", "title", "asset"],
+        "required": ["id", "rule_id", "severity", "title", "asset", "coverage"],
         "properties": {
           "id": { "type": "string" },
           "check_id": { "type": "string" },
-          "coverage": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "coverage": { "description": "Stages that have produced the item, including earlier same-profile observations.", "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "carried_forward": { "type": "boolean", "description": "True when the item remains in this profile baseline because one or more provenance stages did not complete in this scan." },
           "rule_id": { "type": "string" },
           "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
           "confidence": { "type": "string" },

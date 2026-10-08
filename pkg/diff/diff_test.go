@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/exposureguard/exposureguard/pkg/model"
+	"github.com/exposureguard/exposureguard/pkg/snapshot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -276,6 +277,136 @@ func TestCoverageAwareMixedProfileLifecycle(t *testing.T) {
 	partialChanges := Compare(deep, partialDeep)
 	assert.NotContains(t, changeTypes(partialChanges), "frontend.source_map_disappeared", "missing JavaScript coverage cannot resolve the source map")
 	assert.NotContains(t, changeTypes(partialChanges), "finding.resolved", "partial deep coverage cannot resolve findings from stages that did not complete")
+}
+
+func TestSnapshotV1ToV2TransitionsNeverInferResolution(t *testing.T) {
+	legacy := &model.Snapshot{
+		SchemaVersion: "1",
+		Findings: []model.Finding{{
+			ID: "legacy-finding", CheckID: "integration.nuclei", RuleID: "nuclei.exposure",
+			Asset: "example.com", Severity: model.SeverityHigh,
+		}},
+		Assets: []model.Asset{{ID: "legacy-asset", Kind: model.AssetKindHostname, Value: "old.example.com"}},
+	}
+	profiles := []struct {
+		name     string
+		coverage []string
+	}{
+		{name: "quick", coverage: []string{"dns", "tls", "http"}},
+		{name: "standard", coverage: []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder"}},
+		{name: "deep", coverage: []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder", "integration.httpx", "integration.katana", "integration.nuclei"}},
+	}
+	for _, profile := range profiles {
+		t.Run("v1_to_v2_"+profile.name, func(t *testing.T) {
+			current := &model.Snapshot{SchemaVersion: "2", Coverage: profile.coverage}
+			assert.Empty(t, Compare(legacy, current), "a v1 baseline has no provenance; %s cannot safely infer changes", profile.name)
+		})
+	}
+}
+
+func TestCoverageLifecycleKeepsPerProfileHistoryAndRequiresEveryAssetOrigin(t *testing.T) {
+	deep := &model.Snapshot{
+		SchemaVersion: "2",
+		Coverage:      []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder", "integration.httpx", "integration.katana", "integration.nuclei"},
+		Findings: []model.Finding{{
+			ID: "finding-x", CheckID: "integration.nuclei", RuleID: "nuclei.exposure",
+			Asset: "example.com", Severity: model.SeverityHigh, Coverage: []string{"integration.nuclei"},
+		}},
+	}
+	sequence := []*model.Snapshot{
+		{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}},
+		{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}},
+		{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder"}},
+	}
+	for _, current := range sequence {
+		assert.NotContains(t, changeTypes(Compare(deep, current)), "finding.resolved")
+	}
+	confirmedDeep := &model.Snapshot{SchemaVersion: "2", Coverage: append([]string(nil), deep.Coverage...)}
+	assert.Contains(t, changeTypes(Compare(deep, confirmedDeep)), "finding.resolved")
+
+	multiOrigin := &model.Snapshot{
+		SchemaVersion: "2", Coverage: []string{"dns", "integration.subfinder"},
+		Assets: []model.Asset{{
+			ID: "multi-origin", Kind: model.AssetKindHostname, Value: "api.example.com",
+			Coverage: []string{"dns", "integration.subfinder"},
+		}},
+	}
+	withoutOneOrigin := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns"}}
+	assert.NotContains(t, changeTypes(Compare(multiOrigin, withoutOneOrigin)), "asset.removed")
+	withAllOrigins := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "integration.subfinder"}}
+	assert.Contains(t, changeTypes(Compare(multiOrigin, withAllOrigins)), "asset.removed")
+}
+
+func TestV2ProfileTransitionsRespectCoverage(t *testing.T) {
+	quick := &model.Snapshot{SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"}}
+	deep := &model.Snapshot{
+		SchemaVersion: "2",
+		Coverage:      []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder", "integration.httpx", "integration.katana", "integration.nuclei"},
+		Findings: []model.Finding{{
+			ID: "finding-x", CheckID: "integration.nuclei", RuleID: "nuclei.exposure",
+			Asset: "example.com", Severity: model.SeverityHigh, Coverage: []string{"integration.nuclei"},
+		}},
+	}
+
+	assert.Contains(t, changeTypes(Compare(quick, deep)), "finding.appeared", "deep positive evidence is retained after quick coverage")
+	quickAgain := snapshot.CarryForwardUncovered(deep, *quick)
+	assert.NotContains(t, changeTypes(Compare(deep, &quickAgain)), "finding.resolved", "quick cannot resolve a deep-only finding")
+	assert.Len(t, quickAgain.Findings, 1)
+	assert.True(t, quickAgain.Findings[0].CarriedForward)
+}
+
+func TestPartialV2BaselineCarriesItemsUntilCompleteCoverage(t *testing.T) {
+	deepCoverage := []string{"dns", "tls", "http", "crawl", "javascript", "integration.subfinder", "integration.httpx", "integration.katana", "integration.nuclei"}
+	baseline := &model.Snapshot{
+		SchemaVersion: "2",
+		Coverage:      deepCoverage,
+		Assets: []model.Asset{{
+			ID: "asset-x", Kind: model.AssetKindHostname, Value: "api.example.com",
+			Coverage: []string{"dns", "integration.subfinder"},
+		}},
+		Findings: []model.Finding{{
+			ID: "finding-x", CheckID: "integration.nuclei", RuleID: "nuclei.exposure",
+			Asset: "api.example.com", Severity: model.SeverityHigh, Coverage: []string{"integration.nuclei"},
+		}},
+	}
+	partial := snapshot.CarryForwardUncovered(baseline, model.Snapshot{
+		SchemaVersion: "2", Coverage: []string{"dns", "tls", "http"},
+	})
+	assert.Empty(t, Compare(baseline, &partial), "partial coverage keeps prior findings and assets in the comparison baseline")
+	assert.Len(t, partial.Findings, 1)
+	assert.True(t, partial.Findings[0].CarriedForward)
+	assert.Len(t, partial.Assets, 1)
+	assert.True(t, partial.Assets[0].CarriedForward)
+	assert.Equal(t, []string{"integration.nuclei"}, partial.Findings[0].Coverage)
+
+	complete := snapshot.CarryForwardUncovered(&partial, model.Snapshot{
+		SchemaVersion: "2", Coverage: deepCoverage,
+	})
+	changes := changeTypes(Compare(&partial, &complete))
+	assert.Contains(t, changes, "finding.resolved", "the later complete run emits the Engine-owned resolution")
+	assert.Contains(t, changes, "asset.removed", "the later complete run can confirm all prior asset origins are absent")
+	assert.Empty(t, complete.Findings)
+	assert.Empty(t, complete.Assets)
+}
+
+func TestCurrentObservationRetainsPriorMultiOriginProvenance(t *testing.T) {
+	previous := &model.Snapshot{
+		SchemaVersion: "2", Coverage: []string{"dns", "integration.subfinder"},
+		Assets: []model.Asset{{
+			ID: "asset-x", Kind: model.AssetKindHostname, Value: "api.example.com",
+			Coverage: []string{"dns", "integration.subfinder"},
+		}},
+	}
+	current := snapshot.CarryForwardUncovered(previous, model.Snapshot{
+		SchemaVersion: "2", Coverage: []string{"dns"},
+		Assets: []model.Asset{{
+			ID: "asset-x", Kind: model.AssetKindHostname, Value: "api.example.com",
+			Coverage: []string{"dns"},
+		}},
+	})
+	assert.Len(t, current.Assets, 1)
+	assert.Equal(t, []string{"dns", "integration.subfinder"}, current.Assets[0].Coverage)
+	assert.False(t, current.Assets[0].CarriedForward, "positive current evidence means this asset was observed in this scan")
 }
 
 func changeTypes(changes []model.Change) []string {

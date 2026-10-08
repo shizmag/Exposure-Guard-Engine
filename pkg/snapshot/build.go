@@ -22,6 +22,75 @@ func BuildWithCoverage(target model.Target, assets []model.Asset, obs []model.Ob
 	return build(target, assets, obs, findings, capturedAt, coverage, buildinfo.SnapshotSchemaVersion)
 }
 
+// CarryForwardUncovered keeps known v2 items in the next profile lineage until
+// every stage in their provenance completed successfully. Items observed again
+// remain current observations; only items absent from this run are marked as
+// carried forward. V1 items are deliberately not guessed or copied into v2.
+func CarryForwardUncovered(previous *model.Snapshot, current model.Snapshot) model.Snapshot {
+	if previous == nil || previous.SchemaVersion != "2" || current.SchemaVersion != "2" {
+		return current
+	}
+
+	assets := append([]model.Asset(nil), current.Assets...)
+	assetIDs := make(map[string]struct{}, len(current.Assets))
+	for _, item := range current.Assets {
+		assetIDs[item.ID] = struct{}{}
+	}
+	for _, item := range previous.Assets {
+		_, observed := assetIDs[item.ID]
+		if observed || !CoverageIncludesAll(current.Coverage, item.Coverage) {
+			item.CarriedForward = !observed
+			assets = append(assets, item)
+		}
+	}
+
+	observations := append([]model.Observation(nil), current.Observations...)
+	observationIDs := make(map[string]struct{}, len(current.Observations))
+	for _, item := range current.Observations {
+		observationIDs[item.ID] = struct{}{}
+	}
+	for _, item := range previous.Observations {
+		_, observed := observationIDs[item.ID]
+		if observed || !CoverageIncludesAll(current.Coverage, item.Coverage) {
+			item.CarriedForward = !observed
+			observations = append(observations, item)
+		}
+	}
+
+	findings := append([]model.Finding(nil), current.Findings...)
+	findingIDs := make(map[string]struct{}, len(current.Findings))
+	for _, item := range current.Findings {
+		findingIDs[item.ID] = struct{}{}
+	}
+	for _, item := range previous.Findings {
+		_, observed := findingIDs[item.ID]
+		if observed || !CoverageIncludesAll(current.Coverage, item.Coverage) {
+			item.CarriedForward = !observed
+			findings = append(findings, item)
+		}
+	}
+
+	return BuildWithCoverage(current.Target, assets, observations, findings, current.CapturedAt, current.Coverage)
+}
+
+// CoverageIncludesAll reports whether a completed-stage set can confirm absence
+// for an item with the given provenance. Empty provenance is never sufficient.
+func CoverageIncludesAll(completedStages, provenance []string) bool {
+	if len(completedStages) == 0 || len(provenance) == 0 {
+		return false
+	}
+	completed := make(map[string]struct{}, len(completedStages))
+	for _, stage := range completedStages {
+		completed[stage] = struct{}{}
+	}
+	for _, stage := range provenance {
+		if _, ok := completed[stage]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func build(target model.Target, assets []model.Asset, obs []model.Observation, findings []model.Finding, capturedAt time.Time, coverage []string, schemaVersion string) model.Snapshot {
 	coverage = normalizeCoverage(coverage)
 	// Normalize and assign stable IDs with deduplication
@@ -37,6 +106,7 @@ func build(target model.Target, assets []model.Asset, obs []model.Observation, f
 		if idx, exists := seenAssets[id]; exists {
 			existing := &normAssets[idx]
 			existing.Coverage = mergeCoverage(existing.Coverage, a.Coverage)
+			existing.CarriedForward = existing.CarriedForward && a.CarriedForward
 			if a.Source != "" && !strings.Contains(existing.Source, a.Source) {
 				if existing.Source == "" {
 					existing.Source = a.Source
@@ -75,6 +145,7 @@ func build(target model.Target, assets []model.Asset, obs []model.Observation, f
 			normObs = append(normObs, o)
 		} else {
 			normObs[idx].Coverage = mergeCoverage(normObs[idx].Coverage, o.Coverage)
+			normObs[idx].CarriedForward = normObs[idx].CarriedForward && o.CarriedForward
 		}
 	}
 	SortObservations(normObs)
@@ -93,6 +164,7 @@ func build(target model.Target, assets []model.Asset, obs []model.Observation, f
 			normFindings = append(normFindings, f)
 		} else {
 			normFindings[idx].Coverage = mergeCoverage(normFindings[idx].Coverage, f.Coverage)
+			normFindings[idx].CarriedForward = normFindings[idx].CarriedForward && f.CarriedForward
 		}
 	}
 	SortFindings(normFindings)

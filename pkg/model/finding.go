@@ -22,15 +22,16 @@ const (
 
 // Finding represents an actionable defensive issue discovered during the scan.
 type Finding struct {
-	ID          string     `json:"id"`
-	CheckID     string     `json:"check_id"`
-	Coverage    []string   `json:"coverage,omitempty"`
-	RuleID      string     `json:"rule_id"`
-	Severity    Severity   `json:"severity"`
-	Confidence  Confidence `json:"confidence"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Asset       string     `json:"asset"`
-	Evidence    Evidence   `json:"evidence"`
-	Remediation string     `json:"remediation,omitempty"`
+	ID             string     `json:"id"`
+	CheckID        string     `json:"check_id"`
+	Coverage       []string   `json:"coverage,omitempty"`
+	CarriedForward bool       `json:"carried_forward,omitempty"`
+	RuleID         string     `json:"rule_id"`
+	Severity       Severity   `json:"severity"`
+	Confidence     Confidence `json:"confidence"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Asset          string     `json:"asset"`
+	Evidence       Evidence   `json:"evidence"`
+	Remediation    string     `json:"remediation,omitempty"`
 }

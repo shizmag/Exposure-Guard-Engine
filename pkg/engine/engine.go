@@ -548,6 +548,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		coverage = append(coverage, stage)
 	}
 	snap := snapshot.BuildWithCoverage(tgt, allAssets, allObservations, allFindings, completedAt, coverage)
+	snap = snapshot.CarryForwardUncovered(opts.PreviousSnapshot, snap)
 
 	var changes []model.Change
 	if opts.PreviousSnapshot != nil {

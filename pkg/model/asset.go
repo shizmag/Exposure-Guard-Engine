@@ -14,12 +14,13 @@ const (
 
 // Asset represents a discovered resource or reference.
 type Asset struct {
-	ID            string            `json:"id"`
-	Kind          AssetKind         `json:"kind"`
-	Value         string            `json:"value"`
-	URL           string            `json:"url,omitempty"`
-	Source        string            `json:"source,omitempty"`
-	DiscoveredVia string            `json:"discovered_via,omitempty"`
-	Coverage      []string          `json:"coverage,omitempty"`
-	Attributes    map[string]string `json:"attributes,omitempty"`
+	ID             string            `json:"id"`
+	Kind           AssetKind         `json:"kind"`
+	Value          string            `json:"value"`
+	URL            string            `json:"url,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	DiscoveredVia  string            `json:"discovered_via,omitempty"`
+	Coverage       []string          `json:"coverage,omitempty"`
+	CarriedForward bool              `json:"carried_forward,omitempty"`
+	Attributes     map[string]string `json:"attributes,omitempty"`
 }

@@ -72,7 +72,7 @@ Cloud MUST drain both pipes, detect premature child exit/malformed lines, and us
 
 ## Distribution and local development
 
-Cloud v0.1 MUST reject Engine distributions where `identity_algorithm_version != "1"`. Cloud MUST NOT migrate legacy IDs. Snapshot JSON Schema v1 and Identity Algorithm v1 are separate version dimensions. See `identity-v1.md` for pre-v1 rebaseline policy.
+Cloud MUST reject Engine distributions whose identity algorithm or Snapshot contract differs from the release lock. Cloud MUST NOT migrate legacy stable IDs. Snapshot JSON Schema v2 and Identity Algorithm v1 are separate version dimensions. Snapshot v2 coverage and v1→v2 lineage rules are documented in `snapshot-v2.md`; pre-Identity-v1 ID rebaseline policy remains in `identity-v1.md`.
 
 Production uses `/opt/exposureguard`; Engine local development uses `exposureguard-engine/.dev/dist`. Both have identical internal layout: `bin/exposureguard`, external pinned binaries in `bin/`, templates in `share/nuclei-templates/`, curated rules in `profiles/nuclei/v1/`, `tools.lock.json`, and `distribution-manifest.json`.
 

@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // SnapshotSummary provides high-level aggregation of snapshot items.
 type SnapshotSummary struct {
@@ -25,4 +28,20 @@ type Snapshot struct {
 	Observations  []Observation   `json:"observations"`
 	Findings      []Finding       `json:"findings"`
 	Summary       SnapshotSummary `json:"summary"`
+}
+
+// MarshalJSON preserves Snapshot v1 bytes while ensuring Snapshot v2 always
+// carries its coverage field, including an empty array when every stage failed.
+func (s Snapshot) MarshalJSON() ([]byte, error) {
+	type snapshotAlias Snapshot
+	encoded, err := json.Marshal(snapshotAlias(s))
+	if err != nil || s.SchemaVersion != "2" || len(s.Coverage) > 0 {
+		return encoded, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	fields["coverage"] = json.RawMessage("[]")
+	return json.Marshal(fields)
 }

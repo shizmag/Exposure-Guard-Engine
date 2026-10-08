@@ -21,4 +21,4 @@ The following external tools were evaluated and deferred to preserve minimal att
 - **Dynamic Plugin Runtime / WASM**: Dynamic check loading via WASM or external plugins. Deferred to keep v0.1.0 single-binary and deterministic.
 - **Background Daemon / gRPC API**: Evaluated for worker orchestration; deferred because CLI-invoked, stdin/stdout JSONL process execution provides universal language interoperability, clean memory reclamation, and standard container lifecycle management.
 - **Remote Control Plane**: Cloud coordination remains in the ExposureGuard Cloud layer, keeping the engine a clean, decoupled execution worker.
-- **Snapshot Schema Migrations**: Migration tooling for upgrading between schema versions (v1 -> v2) will be introduced when breaking changes to the snapshot format are required.
+- **Snapshot Schema Migrations**: Snapshot v1→v2 comparison is intentionally a no-change baseline because historical v1 items have no complete provenance. No destructive historical-data migration is provided. Any future conversion tool must preserve history and prove provenance or require an explicit reviewed rebaseline; see `snapshot-v2.md`.

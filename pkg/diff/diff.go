@@ -50,7 +50,7 @@ func Compare(oldSnap, newSnap *model.Snapshot) []model.Change {
 	} else {
 		oldObs := make([]model.Observation, 0, len(oldSnap.Observations))
 		for _, observation := range oldSnap.Observations {
-			if coverageIncludesAll(newSnap.Coverage, observation.Coverage) {
+			if snapshot.CoverageIncludesAll(newSnap.Coverage, observation.Coverage) {
 				oldObs = append(oldObs, observation)
 			}
 		}
@@ -79,7 +79,7 @@ func Compare(oldSnap, newSnap *model.Snapshot) []model.Change {
 func diffAssetsWithCoverage(oldSnap, newSnap *model.Snapshot) []model.Change {
 	removedEligible := make(map[string]struct{})
 	for _, asset := range oldSnap.Assets {
-		if coverageIncludesAll(newSnap.Coverage, asset.Coverage) {
+		if snapshot.CoverageIncludesAll(newSnap.Coverage, asset.Coverage) {
 			removedEligible[asset.ID] = struct{}{}
 		}
 	}
@@ -99,31 +99,13 @@ func diffFindingsWithCoverage(oldSnap, newSnap *model.Snapshot) []model.Change {
 	}
 	removedEligible := make(map[string]struct{})
 	for _, finding := range oldSnap.Findings {
-		if coverageIncludesAll(newSnap.Coverage, finding.Coverage) {
+		if snapshot.CoverageIncludesAll(newSnap.Coverage, finding.Coverage) {
 			removedEligible[finding.ID] = struct{}{}
 		}
 	}
 	// A newly observed finding must be surfaced even when the previous Snapshot
 	// did not cover its source stage. Coverage gates only resolution claims.
 	return diffFindingsFiltered(oldSnap.Findings, newSnap.Findings, nil, removedEligible)
-}
-
-// coverageIncludesAll requires each stage that observed the item to have completed in the comparison Snapshot.
-// This conservative check avoids declaring an item removed based on only one of several discovery paths.
-func coverageIncludesAll(snapshotCoverage, itemCoverage []string) bool {
-	if len(itemCoverage) == 0 || len(snapshotCoverage) == 0 {
-		return false
-	}
-	covered := make(map[string]struct{}, len(snapshotCoverage))
-	for _, stage := range snapshotCoverage {
-		covered[stage] = struct{}{}
-	}
-	for _, stage := range itemCoverage {
-		if _, ok := covered[stage]; !ok {
-			return false
-		}
-	}
-	return true
 }
 
 func diffAssets(oldAssets, newAssets []model.Asset) []model.Change {

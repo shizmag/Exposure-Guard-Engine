@@ -64,6 +64,45 @@ func TestBuildSnapshotEmitsEmptyCollectionsAsArrays(t *testing.T) {
 	assert.JSONEq(t, `{"schema_version":"1","target":{"raw":"https://example.com","url":"https://example.com/","scheme":"https","host":"example.com","port":443,"domain":"example.com"},"captured_at":"2026-10-06T12:00:00Z","assets":[],"observations":[],"findings":[],"summary":{"total_assets":0,"total_observations":0,"total_findings":0,"critical_findings":0,"high_findings":0,"medium_findings":0,"low_findings":0,"info_findings":0},"fingerprint":"`+snap.Fingerprint+`"}`, string(encoded))
 }
 
+func TestBuildSnapshotV2AlwaysSerializesCoverageAndMergesProvenance(t *testing.T) {
+	tgt := model.Target{Raw: "https://example.com", URL: "https://example.com/", Host: "example.com", Scheme: "https", Port: 443, Domain: "example.com"}
+	snap := BuildWithCoverage(tgt,
+		[]model.Asset{
+			{Kind: model.AssetKindHostname, Value: "api.example.com", Coverage: []string{"dns"}, Source: "dns"},
+			{Kind: model.AssetKindHostname, Value: "api.example.com", Coverage: []string{"integration.subfinder"}, Source: "subfinder"},
+		},
+		[]model.Observation{
+			{Kind: "host_discovered", Subject: "api.example.com", Data: map[string]any{"value": "api.example.com"}, Coverage: []string{"dns"}},
+			{Kind: "host_discovered", Subject: "api.example.com", Data: map[string]any{"value": "api.example.com"}, Coverage: []string{"integration.subfinder"}},
+		},
+		[]model.Finding{
+			{CheckID: "http.root", RuleID: "http.missing_hsts", Asset: "https://example.com/", Coverage: []string{"http"}},
+			{CheckID: "http.root", RuleID: "http.missing_hsts", Asset: "https://example.com/", Coverage: []string{"integration.httpx"}},
+		},
+		time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC),
+		[]string{"integration.httpx", "dns", "integration.subfinder", "http"},
+	)
+
+	encoded, err := json.Marshal(snap)
+	require.NoError(t, err)
+	var wire map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &wire))
+	assert.JSONEq(t, `["dns","http","integration.httpx","integration.subfinder"]`, string(wire["coverage"]))
+	assert.Len(t, snap.Assets, 1)
+	assert.Equal(t, []string{"dns", "integration.subfinder"}, snap.Assets[0].Coverage)
+	assert.Equal(t, []string{"dns", "integration.subfinder"}, snap.Observations[0].Coverage)
+	assert.Equal(t, []string{"http", "integration.httpx"}, snap.Findings[0].Coverage)
+	assert.Len(t, snap.Assets[0].ID, 64)
+	assert.Len(t, snap.Findings[0].ID, 64)
+
+	empty := BuildWithCoverage(tgt, nil, nil, nil, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), nil)
+	emptyBytes, err := json.Marshal(empty)
+	require.NoError(t, err)
+	var emptyWire map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(emptyBytes, &emptyWire))
+	assert.JSONEq(t, `[]`, string(emptyWire["coverage"]))
+}
+
 func TestSnapshotGoldenCompatibility(t *testing.T) {
 	fixturePath := filepath.Join("..", "..", "testdata", "snapshots", "snapshot_v1_expected.json")
 	data, err := os.ReadFile(fixturePath)
