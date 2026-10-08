@@ -1,5 +1,5 @@
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "target": {
     "raw": "https://example.com",
     "url": "https://example.com/",
@@ -9,22 +9,26 @@
     "domain": "example.com"
   },
   "captured_at": "2026-10-06T12:00:00Z",
+  "coverage": ["crawl", "javascript", "http"],
   "assets": [
     {
       "id": "js_12345",
       "kind": "javascript",
-      "value": "https://example.com/bundle.js"
+      "value": "https://example.com/bundle.js",
+      "coverage": ["javascript"]
     },
     {
       "id": "map_67890",
       "kind": "source_map",
-      "value": "https://example.com/bundle.js.map"
+      "value": "https://example.com/bundle.js.map",
+      "coverage": ["javascript"]
     }
   ],
   "observations": [
     {
       "id": "http_12345",
       "kind": "http_response",
+      "coverage": ["http"],
       "subject": "https://example.com/",
       "data": {
         "status_code": 200
@@ -35,6 +39,7 @@
     {
       "id": "finding_map_1",
       "check_id": "frontend.javascript",
+      "coverage": ["javascript"],
       "rule_id": "frontend.public_source_map",
       "severity": "medium",
       "confidence": "high",

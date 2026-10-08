@@ -228,7 +228,8 @@ func TestSemanticSnapshotDeterminismAndInvariants(t *testing.T) {
 	snap1 := res1.Snapshot
 	snap2 := res2.Snapshot
 
-	require.Equal(t, snap1.SchemaVersion, "1")
+	require.Equal(t, "2", snap1.SchemaVersion)
+	require.NotEmpty(t, snap1.Coverage, "Snapshot v2 must report successful stage coverage")
 	require.Equal(t, snap1.Summary.TotalAssets, len(snap1.Assets))
 	require.Equal(t, snap1.Summary.TotalObservations, len(snap1.Observations))
 	require.Equal(t, snap1.Summary.TotalFindings, len(snap1.Findings))

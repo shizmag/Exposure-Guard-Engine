@@ -21,10 +21,13 @@ func Compare(oldSnap, newSnap *model.Snapshot) []model.Change {
 	if oldSnap == nil || newSnap == nil {
 		return nil
 	}
-	legacyComparison := (oldSnap.SchemaVersion == "1" && newSnap.SchemaVersion == "1") || (oldSnap.SchemaVersion == "" && newSnap.SchemaVersion == "")
+	if oldSnap.SchemaVersion == "1" || newSnap.SchemaVersion == "1" {
+		// V1 has no stage coverage or item provenance. Even two v1 snapshots
+		// cannot prove that an absent item was checked by the current scan.
+		return nil
+	}
+	legacyComparison := oldSnap.SchemaVersion == "" && newSnap.SchemaVersion == ""
 	if !legacyComparison && (oldSnap.SchemaVersion != "2" || newSnap.SchemaVersion != "2") {
-		// A v1 Snapshot has no coverage metadata. Treating its missing values as
-		// observations would turn a profile transition into false removals.
 		return nil
 	}
 

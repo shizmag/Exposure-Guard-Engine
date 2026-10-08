@@ -302,6 +302,12 @@ func TestSnapshotV1ToV2TransitionsNeverInferResolution(t *testing.T) {
 			assert.Empty(t, Compare(legacy, current), "a v1 baseline has no provenance; %s cannot safely infer changes", profile.name)
 		})
 	}
+
+	// Even an apparently complete v1-to-v1 run cannot prove absence: neither
+	// record says which stages succeeded or produced a legacy item.
+	legacyCurrent := &model.Snapshot{SchemaVersion: "1"}
+	assert.Empty(t, Compare(legacy, legacyCurrent), "v1-to-v1 cannot infer a Finding or Asset resolution")
+	assert.Empty(t, Compare(legacyCurrent, legacy), "v1-to-v1 cannot infer a new legacy state from missing coverage")
 }
 
 func TestCoverageLifecycleKeepsPerProfileHistoryAndRequiresEveryAssetOrigin(t *testing.T) {
