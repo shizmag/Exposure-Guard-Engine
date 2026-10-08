@@ -25,6 +25,7 @@ func testDistributionRoot(t *testing.T) string {
 		}
 	}
 	copyFile("../../tools.lock.json", filepath.Join(root, "tools.lock.json"))
+	copyFile("../../pkg/capabilities/manifest.json", filepath.Join(root, "capabilities.json"))
 	copyFile("../../schemas/distribution-manifest.schema.json", filepath.Join(root, "schemas/distribution-manifest.schema.json"))
 	copyFile("../../profiles/nuclei/v1/manifest.json", filepath.Join(root, "profiles/nuclei/v1/manifest.json"))
 	copyFile("../../profiles/nuclei/v1/templates.txt", filepath.Join(root, "profiles/nuclei/v1/templates.txt"))

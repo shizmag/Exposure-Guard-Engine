@@ -122,6 +122,7 @@ findings, and computes state changes across time without intrusive exploits.`,
 	cmd.AddCommand(newProfilesCmd())
 	cmd.AddCommand(newSnapshotCmd())
 	cmd.AddCommand(newChecksCmd())
+	cmd.AddCommand(newCapabilitiesCmd())
 	cmd.AddCommand(newConfigCmd())
 
 	return cmd

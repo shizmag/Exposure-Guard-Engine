@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/exposureguard/exposureguard/internal/buildinfo"
+	"github.com/exposureguard/exposureguard/pkg/capabilities"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -25,23 +26,24 @@ type Tool struct {
 }
 
 type Manifest struct {
-	DistributionSchemaVersion string          `json:"distribution_schema_version"`
-	DistributionType          string          `json:"distribution_type"`
-	DistributionCapabilities  []string        `json:"distribution_capabilities"`
-	Engine                    string          `json:"engine"`
-	EngineVersion             string          `json:"engine_version"`
-	EngineCommit              string          `json:"engine_commit"`
-	EngineBinarySHA256        string          `json:"engine_binary_sha256"`
-	ProtocolVersion           string          `json:"protocol_version"`
-	BatchProtocolVersion      string          `json:"batch_protocol_version"`
-	SnapshotSchemaVersion     string          `json:"snapshot_schema_version"`
-	IdentityAlgorithmVersion  string          `json:"identity_algorithm_version"`
-	ToolchainManifestSHA256   string          `json:"toolchain_manifest_sha256"`
-	Tools                     map[string]Tool `json:"tools"`
-	NucleiTemplatesVersion    string          `json:"nuclei_templates_version"`
-	NucleiTemplatesSHA256     string          `json:"nuclei_templates_sha256"`
-	NucleiRulesetVersion      string          `json:"nuclei_ruleset_version"`
-	NucleiRulesetSHA256       string          `json:"nuclei_ruleset_sha256"`
+	DistributionSchemaVersion  string          `json:"distribution_schema_version"`
+	DistributionType           string          `json:"distribution_type"`
+	DistributionCapabilities   []string        `json:"distribution_capabilities"`
+	Engine                     string          `json:"engine"`
+	EngineVersion              string          `json:"engine_version"`
+	EngineCommit               string          `json:"engine_commit"`
+	EngineBinarySHA256         string          `json:"engine_binary_sha256"`
+	ProtocolVersion            string          `json:"protocol_version"`
+	BatchProtocolVersion       string          `json:"batch_protocol_version"`
+	SnapshotSchemaVersion      string          `json:"snapshot_schema_version"`
+	IdentityAlgorithmVersion   string          `json:"identity_algorithm_version"`
+	ToolchainManifestSHA256    string          `json:"toolchain_manifest_sha256"`
+	CapabilitiesManifestSHA256 string          `json:"capabilities_manifest_sha256"`
+	Tools                      map[string]Tool `json:"tools"`
+	NucleiTemplatesVersion     string          `json:"nuclei_templates_version"`
+	NucleiTemplatesSHA256      string          `json:"nuclei_templates_sha256"`
+	NucleiRulesetVersion       string          `json:"nuclei_ruleset_version"`
+	NucleiRulesetSHA256        string          `json:"nuclei_ruleset_sha256"`
 }
 
 func shaFile(path string) (string, error) {
@@ -120,6 +122,18 @@ func Build(root string, engineVersion, commit string) (Manifest, error) {
 		return Manifest{}, err
 	}
 	manifest.ToolchainManifestSHA256, err = shaFile(filepath.Join(root, "tools.lock.json"))
+	if err != nil {
+		return Manifest{}, err
+	}
+	capabilityPath := filepath.Join(root, "capabilities.json")
+	capabilityData, err := os.ReadFile(capabilityPath)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("read capabilities.json: %w", err)
+	}
+	if _, err := capabilities.Parse(capabilityData); err != nil {
+		return Manifest{}, fmt.Errorf("validate capabilities.json: %w", err)
+	}
+	manifest.CapabilitiesManifestSHA256, err = shaFile(capabilityPath)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -275,6 +289,16 @@ func Check(root, schemaPath string) error {
 	}
 	if err := check(filepath.Join(root, "tools.lock.json"), manifest.ToolchainManifestSHA256); err != nil {
 		return err
+	}
+	if err := check(filepath.Join(root, "capabilities.json"), manifest.CapabilitiesManifestSHA256); err != nil {
+		return err
+	}
+	capabilityData, err := os.ReadFile(filepath.Join(root, "capabilities.json"))
+	if err != nil {
+		return err
+	}
+	if _, err := capabilities.Parse(capabilityData); err != nil {
+		return fmt.Errorf("invalid capability contract: %w", err)
 	}
 	for name, tool := range manifest.Tools {
 		path := filepath.Join(root, "bin", name)

@@ -17,11 +17,30 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.x'
-          check-latest: true
+          go-version-file: go.mod
 
       - name: Run CI Suite
         run: make ci
 
       - name: Build Binary
         run: make build
+
+      - name: Build and validate immutable Linux/amd64 distribution candidate
+        run: |
+          set -euo pipefail
+          make dev-dist VERSION="0.1.0-ci-${GITHUB_SHA::12}" COMMIT="$GITHUB_SHA"
+          make dist-check DIST=.dev/dist
+          .dev/dist/bin/exposureguard capabilities --format json > .dev/dist/capabilities-command.json
+          cmp .dev/dist/capabilities.json .dev/dist/capabilities-command.json
+          tar -czf "$RUNNER_TEMP/exposureguard-linux-amd64.tar.gz" -C .dev/dist .
+          sha256sum "$RUNNER_TEMP/exposureguard-linux-amd64.tar.gz" > "$RUNNER_TEMP/exposureguard-linux-amd64.tar.gz.sha256"
+
+      - name: Preserve Linux/amd64 candidate and fingerprint
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: exposureguard-engine-linux-amd64-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/exposureguard-linux-amd64.tar.gz
+            ${{ runner.temp }}/exposureguard-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30

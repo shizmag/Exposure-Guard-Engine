@@ -4,7 +4,7 @@
   "title": "ExposureGuard Engine Distribution Manifest",
   "type": "object",
   "required": [
-    "distribution_schema_version", "distribution_type", "distribution_capabilities", "engine", "engine_version", "engine_commit", "engine_binary_sha256", "protocol_version", "batch_protocol_version", "snapshot_schema_version", "identity_algorithm_version", "toolchain_manifest_sha256", "tools", "nuclei_templates_version", "nuclei_templates_sha256", "nuclei_ruleset_version", "nuclei_ruleset_sha256"
+    "distribution_schema_version", "distribution_type", "distribution_capabilities", "engine", "engine_version", "engine_commit", "engine_binary_sha256", "protocol_version", "batch_protocol_version", "snapshot_schema_version", "identity_algorithm_version", "toolchain_manifest_sha256", "capabilities_manifest_sha256", "tools", "nuclei_templates_version", "nuclei_templates_sha256", "nuclei_ruleset_version", "nuclei_ruleset_sha256"
   ],
   "properties": {
     "distribution_schema_version": {"const": "1"},
@@ -19,6 +19,7 @@
     "snapshot_schema_version": {"const": "2"},
     "identity_algorithm_version": {"const": "1"},
     "toolchain_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "capabilities_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "tools": {
       "type": "object",
       "properties": {

@@ -100,18 +100,20 @@ func newVersionCmd() *cobra.Command {
 				}
 				output := struct {
 					buildinfo.Info
-					ToolchainManifestSHA256 string         `json:"toolchain_manifest_sha256"`
-					NucleiRulesetVersion    string         `json:"nuclei_ruleset_version"`
-					NucleiRulesetSHA256     string         `json:"nuclei_ruleset_sha256"`
-					DistributionManifest    map[string]any `json:"distribution_manifest,omitempty"`
-					EngineBinarySHA256      string         `json:"engine_binary_sha256"`
+					ToolchainManifestSHA256    string         `json:"toolchain_manifest_sha256"`
+					CapabilitiesManifestSHA256 string         `json:"capabilities_manifest_sha256"`
+					NucleiRulesetVersion       string         `json:"nuclei_ruleset_version"`
+					NucleiRulesetSHA256        string         `json:"nuclei_ruleset_sha256"`
+					DistributionManifest       map[string]any `json:"distribution_manifest,omitempty"`
+					EngineBinarySHA256         string         `json:"engine_binary_sha256"`
 				}{
-					Info:                    info,
-					ToolchainManifestSHA256: fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())),
-					NucleiRulesetVersion:    nuclei.CuratedProfileVersion,
-					NucleiRulesetSHA256:     nuclei.CuratedRulesetSHA256,
-					DistributionManifest:    manifest,
-					EngineBinarySHA256:      binaryHash,
+					Info:                       info,
+					ToolchainManifestSHA256:    fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())),
+					CapabilitiesManifestSHA256: manifestString(manifest, "capabilities_manifest_sha256"),
+					NucleiRulesetVersion:       nuclei.CuratedProfileVersion,
+					NucleiRulesetSHA256:        nuclei.CuratedRulesetSHA256,
+					DistributionManifest:       manifest,
+					EngineBinarySHA256:         binaryHash,
 				}
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -129,4 +131,9 @@ func newVersionCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output version metadata as JSON")
 	cmd.Flags().StringVar(&format, "format", "human", "output format: human, json")
 	return cmd
+}
+
+func manifestString(manifest map[string]any, key string) string {
+	value, _ := manifest[key].(string)
+	return value
 }

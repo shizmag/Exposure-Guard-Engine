@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -330,7 +331,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			addObservationsFrom("dns", res.Observations)
 			markCoverage("dns")
 		}
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "dns"})
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "dns", "status": status})
 	}
 
 	// -----------------------------------------------------------------
@@ -349,7 +354,13 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			addFindingsFrom("tls", res.Findings)
 			markCoverage("tls")
 		}
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "tls"})
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "tls", "status": status})
+	} else if isModuleEnabled("tls", req.Modules, req.DisableModules) && ctx.Err() == nil {
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "tls", "status": "not_applicable", "reason": "target_not_https"})
 	}
 
 	// -----------------------------------------------------------------
@@ -369,7 +380,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 			addFindingsFrom("http", res.Findings)
 			markCoverage("http")
 		}
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "http"})
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "http", "status": status})
 	}
 
 	// -----------------------------------------------------------------
@@ -379,6 +394,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		if parsedIP, err := netip.ParseAddr(tgt.Host); err == nil && parsedIP.IsValid() {
 			// Skip subdomain discovery on IP address targets (IPs cannot have subdomains)
 			stats.IntegrationsSkipped = append(stats.IntegrationsSkipped, "subfinder")
+			e.emit(protocol.EventStageCompleted, map[string]string{"stage": "integration.subfinder", "status": "not_applicable", "reason": "target_is_ip", "tool": "subfinder"})
 		} else if subAdapter, ok := e.registry.Get("subfinder"); ok {
 			var subAssets []model.Asset
 			err := e.runIntegration(ctx, subAdapter, req, tgt, nil, &stats, stageDurations,
@@ -483,7 +499,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 				}
 			}
 		}
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "crawl"})
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "crawl", "status": status})
 	}
 
 	// -----------------------------------------------------------------
@@ -510,7 +530,11 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 				}
 			}
 		}
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript"})
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript", "status": status})
 	} else if isModuleEnabled("javascript", req.Modules, req.DisableModules) && ctx.Err() == nil && javascriptDiscoveryComplete && len(discoveredJSAssets) == 0 {
 		// A successful discovery stage with no JavaScript inputs is complete
 		// negative coverage for source-map analysis; quick profiles do not run
@@ -518,7 +542,7 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*model.ScanResult, erro
 		e.emit(protocol.EventStageStarted, map[string]string{"stage": "javascript"})
 		stageDurations["javascript"] = 0
 		markCoverage("javascript")
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript", "status": "no_candidates"})
+		e.emit(protocol.EventStageCompleted, map[string]string{"stage": "javascript", "status": "not_applicable", "reason": "no_candidates"})
 	}
 
 	// -----------------------------------------------------------------
@@ -718,15 +742,33 @@ func (e *Engine) runIntegration(
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	stageKey := "integration." + id
+	e.emit(protocol.EventStageStarted, map[string]string{"stage": stageKey, "tool": id})
+	completed := func(status string, inst integration.Installation, fingerprint string) {
+		data := map[string]string{"stage": stageKey, "status": status, "tool": id}
+		if inst.Version != "" {
+			data["tool_version"] = inst.Version
+		}
+		if fingerprint != "" {
+			data["fingerprint_sha256"] = fingerprint
+		}
+		e.emit(protocol.EventStageCompleted, data)
+	}
 
 	// 1. Probe installation
 	inst, err := adapter.Detect(ctx, e.runner)
 	if err != nil || !inst.Installed || !inst.Compatible {
+		completed("unavailable", inst, "")
 		if slices.Contains(req.RequireIntegrations, id) {
 			return fmt.Errorf("required integration %q unavailable: %v", id, err)
 		}
 		stats.IntegrationsSkipped = append(stats.IntegrationsSkipped, id)
 		return nil
+	}
+	var fingerprint string
+	if toolBytes, readErr := os.ReadFile(inst.Path); readErr == nil {
+		toolHash := sha256.Sum256(toolBytes)
+		fingerprint = hex.EncodeToString(toolHash[:])
 	}
 
 	// 2. Prepare isolated working directory
@@ -758,15 +800,15 @@ func (e *Engine) runIntegration(
 	plan, err := adapter.Plan(ctx, intReq)
 	if err != nil {
 		stats.IntegrationsFailed = append(stats.IntegrationsFailed, id)
+		completed("failed", inst, fingerprint)
 		return fmt.Errorf("plan error: %w", err)
 	}
 
 	// 3. Execute
-	stageKey := "integration." + id
 	if ctx.Err() != nil {
+		completed("cancelled", inst, fingerprint)
 		return ctx.Err()
 	}
-	e.emit(protocol.EventStageStarted, map[string]string{"stage": stageKey})
 	sStart := time.Now()
 
 	res, err := e.runner.Run(ctx, plan)
@@ -774,7 +816,7 @@ func (e *Engine) runIntegration(
 
 	if err != nil {
 		stats.IntegrationsFailed = append(stats.IntegrationsFailed, id)
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": stageKey, "status": "failed"})
+		completed("failed", inst, fingerprint)
 		return fmt.Errorf("execution error: %w", err)
 	}
 	defer res.Stdout.Close()
@@ -788,12 +830,12 @@ func (e *Engine) runIntegration(
 
 	if err := adapter.Parse(ctx, res.Stdout, emitter); err != nil {
 		stats.IntegrationsFailed = append(stats.IntegrationsFailed, id)
-		e.emit(protocol.EventStageCompleted, map[string]string{"stage": stageKey, "status": "parse_error"})
+		completed("parse_error", inst, fingerprint)
 		return fmt.Errorf("parse error: %w", err)
 	}
 
 	stats.IntegrationsRan = append(stats.IntegrationsRan, id)
-	e.emit(protocol.EventStageCompleted, map[string]string{"stage": stageKey, "status": "completed"})
+	completed("completed", inst, fingerprint)
 	return nil
 }
 

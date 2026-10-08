@@ -32,6 +32,7 @@ prepare_layout() {
   mkdir -p "$root/bin" "$root/profiles/nuclei/v1" "$root/schemas"
   cp "$BINARY" "$root/bin/$binary_name"
   cp tools.lock.json "$root/tools.lock.json"
+  cp pkg/capabilities/manifest.json "$root/capabilities.json"
   cp schemas/distribution-manifest.schema.json "$root/schemas/distribution-manifest.schema.json"
   cp profiles/nuclei/v1/* "$root/profiles/nuclei/v1/"
 }

@@ -337,6 +337,7 @@ if [ "$MODE" = "engine-only" ]; then
 fi
 cp -R profiles/nuclei/v1/. "${PROFILES_DIR}/."
 cp tools.lock.json "${INSTALL_PREFIX}/tools.lock.json"
+cp pkg/capabilities/manifest.json "${INSTALL_PREFIX}/capabilities.json"
 cp schemas/distribution-manifest.schema.json "${INSTALL_PREFIX}/distribution-manifest.schema.json"
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 go run ./cmd/build-distribution --root "${INSTALL_PREFIX}" --schema "${INSTALL_PREFIX}/distribution-manifest.schema.json" --version "${ENGINE_VERSION}" --commit "${GIT_COMMIT}"

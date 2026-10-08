@@ -106,6 +106,7 @@ type doctorReport struct {
 	BatchProtocolVersion       string                  `json:"batch_protocol_version"`
 	IdentityAlgorithmVersion   string                  `json:"identity_algorithm_version"`
 	ToolchainManifestSHA256    string                  `json:"toolchain_manifest_sha256"`
+	CapabilitiesManifestSHA256 string                  `json:"capabilities_manifest_sha256"`
 	DistributionManifestSHA256 string                  `json:"distribution_manifest_sha256"`
 	NucleiRulesetVersion       string                  `json:"nuclei_ruleset_version"`
 	NucleiRulesetSHA256        string                  `json:"nuclei_ruleset_sha256"`
@@ -125,6 +126,10 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 	overallStatus := StatusPass
 	parallelScans, parallelErr := maxParallelScans()
 	manifestHash, distributionType, manifestErr := distributionManifestStatus()
+	capabilityHash := ""
+	if manifest, err := readDistributionManifest(); err == nil {
+		capabilityHash = manifest.CapabilitiesManifestSHA256
+	}
 
 	report := doctorReport{
 		DistributionType: distributionType,
@@ -140,6 +145,7 @@ func runDoctor(ctx context.Context, opts *doctorOptions) error {
 		BatchProtocolVersion:       buildinfo.BatchProtocolVersion,
 		IdentityAlgorithmVersion:   buildinfo.IdentityAlgorithmVersion,
 		ToolchainManifestSHA256:    fmt.Sprintf("%x", sha256.Sum256(integration.EmbeddedToolsLockBytes())),
+		CapabilitiesManifestSHA256: capabilityHash,
 		DistributionManifestSHA256: manifestHash,
 		NucleiRulesetVersion:       nuclei.CuratedProfileVersion,
 		NucleiRulesetSHA256:        nuclei.CuratedRulesetSHA256,

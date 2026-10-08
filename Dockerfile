@@ -12,6 +12,7 @@ ARG BUILD_DATE=2026-10-07T00:00:00Z
 RUN CGO_ENABLED=0 make build VERSION="${ENGINE_VERSION}" COMMIT="${ENGINE_COMMIT}" BUILD_DATE="${BUILD_DATE}" && \
     mkdir -p /dist/bin && cp bin/exposureguard /dist/bin/exposureguard && \
     cp tools.lock.json /dist/tools.lock.json && \
+    cp pkg/capabilities/manifest.json /dist/capabilities.json && \
     cp schemas/distribution-manifest.schema.json /dist/distribution-manifest.schema.json && \
     mkdir -p /dist/profiles/nuclei/v1 && cp profiles/nuclei/v1/* /dist/profiles/nuclei/v1/ && \
     go run ./cmd/build-distribution --root /dist --schema /dist/distribution-manifest.schema.json --version "${ENGINE_VERSION}" --commit "${ENGINE_COMMIT}"
@@ -67,6 +68,7 @@ COPY --from=tool-fetcher /dist/share/nuclei-templates/ /opt/exposureguard/share/
 COPY --from=tool-fetcher /dist/profiles/ /opt/exposureguard/profiles/
 COPY --from=tool-fetcher /dist/distribution-manifest.json /opt/exposureguard/distribution-manifest.json
 COPY --from=tool-fetcher /dist/tools.lock.json /opt/exposureguard/tools.lock.json
+COPY --from=tool-fetcher /dist/capabilities.json /opt/exposureguard/capabilities.json
 COPY schemas/distribution-manifest.schema.json /opt/exposureguard/distribution-manifest.schema.json
 ENV PATH="/opt/exposureguard/bin:${PATH}" \
     EXPOSUREGUARD_HOME="/opt/exposureguard" \
